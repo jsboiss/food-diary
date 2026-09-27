@@ -1,0 +1,9 @@
+.git
+bin
+obj
+node_modules
+data
+test-data
+test-results
+.env*
+*.log

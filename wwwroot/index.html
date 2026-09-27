@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#f5f2eb"><meta name="apple-mobile-web-app-capable" content="yes">
+  <title>Food diary · field test</title><link rel="manifest" href="/manifest.webmanifest"><link rel="icon" href="/icon.svg" type="image/svg+xml"><link rel="stylesheet" href="/app.css">
+  <script src="/app.js" type="module"></script>
+</head>
+<body>
+  <main>
+    <header><div class="eyebrow">FOOD + FEELING</div><h1>A little more<br>understanding.</h1><p class="intro">A photo of your food. A moment to check in.</p></header>
+    <div class="test-banner"><strong>iPhone field test</strong><span>Recognition is simulated. No photos are sent to AI.</span></div>
+    <section id="login-panel" class="panel"><h2>Your private diary</h2><form id="login-form"><label for="password">Access password</label><input type="password" id="password" autocomplete="current-password" required><button type="submit">Open diary</button></form><p id="login-error" role="alert"></p></section>
+    <div id="app" hidden>
+      <div class="toolbar"><span id="connection" role="status">Connecting…</span><button id="logout" class="text-button">Sign out</button></div>
+      <section class="panel composer">
+        <div class="section-head"><h2>What’s on your plate?</h2><span class="step">01 / CAPTURE</span></div>
+        <p>No description needed. Save now; processing happens later.</p>
+        <div class="capture-actions"><label class="button primary" for="camera">Take a photo</label><label class="button secondary" for="library">Choose a photo</label></div>
+        <input class="visually-hidden" type="file" id="camera" accept="image/*" capture="environment"><input class="visually-hidden" type="file" id="library" accept="image/*">
+        <div id="selection" hidden><img id="selected-photo" alt="Your selected food photo"><p id="file-info"></p><button class="text-button" id="clear-photo">Remove photo</button></div>
+        <div class="section-head"><h3>How’s your stomach?</h3><span class="step">02 / CHECK IN</span></div>
+        <div class="feelings" role="group" aria-label="Stomach feeling"><button data-feeling="good" aria-pressed="false">Good <span>☺</span></button><button data-feeling="okay" aria-pressed="false">Okay <span>−</span></button><button data-feeling="bad" aria-pressed="false">Bad <span>⌁</span></button></div>
+        <p class="hint">Optional with a meal. Or save a stomach check-in on its own.</p>
+        <label for="occurred-at">When?</label><input id="occurred-at" type="datetime-local" required>
+        <details><summary>Test controls</summary><label class="checkbox"><input type="checkbox" id="simulate-failure"> Simulate analysis failure, then test Retry</label><p class="hint">Successful simulations take at least 8 seconds. They identify no actual food.</p></details>
+        <button id="save" class="save" disabled>Save entry</button>
+        <p id="message" role="status" aria-live="polite"></p>
+      </section>
+      <section class="panel"><div class="section-head"><h2>Barcode check</h2><span class="step">COMPATIBILITY TEST</span></div><p>Photograph a barcode to test decoding and product lookup. This test does not add a diary entry.</p><label class="button secondary" for="barcode">Photograph barcode</label><input class="visually-hidden" id="barcode" type="file" accept="image/*" capture="environment"><p id="barcode-result" role="status">Use a clear, close photo of the entire barcode.</p></section>
+      <section class="diary"><div class="section-head"><h2>Your timeline</h2><a href="/api/export" class="text-button">Export CSV ↗</a></div><p class="hint">Pending photos stay on this device until a server preview is ready. Reopen the app to resume uploads.</p><div id="entries" aria-live="polite"></div></section>
+      <footer>To install: Safari → Share → Add to Home Screen.<br>Use test photos for this prototype. AI accuracy, HEIC and iPhone background behavior still need validation.</footer>
+    </div>
+  </main>
+</body>
+</html>
