@@ -88,6 +88,8 @@ class Provider(BaseHTTPRequestHandler):
             description['labelIngredients'] = ['Cream', 'Sugar']
         if mode == 'package-barcode':
             description['barcode'] = '12345678'
+        if 'approximate ingredient list' in body['instructions']:
+            description.update(visibleFoods=['Milk', 'Sugar', 'Cocoa'], labelIngredients=[], uncertainties=[])
         content = [{'type': 'output_text', 'text': json.dumps(description) if mode != 'malformed' else '{broken'}]
         if mode == 'refusal':
             content = [{'type': 'refusal', 'refusal': 'Provider text should not be exposed'}]
@@ -153,7 +155,7 @@ def main():
             meal = upload()
             entry = wait(meal, lambda item: item['status'] == 'Identified' and item['originalDeletedAt'])
             assert entry['recognition']['labelIngredients'] == [], 'Meal must not acquire invented label ingredients'
-            assert entry['recognition']['inputTokens'] == 2400 and entry['recognition']['outputTokens'] == 150
+            assert entry['recognition']['inputTokens'] == 4800 and entry['recognition']['outputTokens'] == 300
             assert not (Path(directory) / f'{meal}.original').exists()
             sent = Provider.calls[-1]
             assert sent['store'] is False and sent['reasoning']['effort'] == 'none'
@@ -221,11 +223,18 @@ def main():
                     assert entry['product'] is None and entry['recognition'] is not None
             for mode in ['package', 'package-missing', 'package-ambiguous', 'package-text', 'package-label', 'package-barcode']:
                 searches_before = len(Provider.searches)
+                calls_before = len(Provider.calls)
                 entry_id = upload(mode, kind='auto')
                 entry = wait(entry_id, lambda item: item['status'] == 'Identified' and item['originalDeletedAt'])
                 if mode in ['package-missing', 'package-ambiguous']:
                     assert entry['product'] is None
-                    assert any('No matching ingredient list' in item for item in entry['recognition']['uncertainties'])
+                    assert entry['recognition']['visibleFoods'] == ['Milk', 'Sugar', 'Cocoa']
+                    assert len(Provider.calls) == calls_before + 2
+                    assert 'Milk; Sugar; Cocoa' in request('/api/export').decode('utf-8-sig')
+                else:
+                    assert len(Provider.calls) == calls_before + 1
+                if mode in ['package-missing', 'package-ambiguous']:
+                    pass
                 elif mode == 'package-label':
                     assert entry['recognition']['labelIngredients'] == ['Cream', 'Sugar'] and entry['product'] is None
                     assert len(Provider.searches) == searches_before

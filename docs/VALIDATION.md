@@ -59,3 +59,6 @@ Local draft deletion: Timeline details now offer Delete entry for food photos th
 
 
 Automatic package ingredients: mock integration tests cover named Ben & Jerry's Chocolate Fudge Brownie lookup, rejecting a non-dairy variant, conflicting recipes, missing matches, nested ingredients, comma-separated label fallback, barcode OCR and readable-label priority. CSV includes product source URL and match method. Open Food Facts staging search returned HTTP 200 with product-name results; its sample results lacked ingredient records. No real AI calls were made for this change, and the exact user photo has not been reanalysed.
+
+
+Ingredient fallback: a missing or ambiguous database result now triggers a second AI call with the compressed photo and identified food context. Its ingredients populate the normal list and CSV automatically. Successful barcode, label and name lookups skip the extra call. Mock tests verify both paths, ingredient export and combined API token counts. No live API call was used in this validation.

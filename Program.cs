@@ -243,7 +243,7 @@ app.MapGet("/api/export", async (DiaryStore store) =>
             string.Join("; ", entry.Recognition?.Uncertainties ?? []), entry.Recognition?.Model ?? "", entry.Recognition?.PromptVersion ?? "",
             entry.Recognition?.ImageSource ?? "", entry.Recognition?.InputTokens?.ToString() ?? "", entry.Recognition?.OutputTokens?.ToString() ?? "",
             entry.Recognition?.CachedInputTokens?.ToString() ?? "", entry.Description,
-            string.Join("; ", entry.EditedIngredients ?? entry.Product?.Ingredients ?? (entry.Recognition?.LabelIngredients.Length > 0 ? entry.Recognition.LabelIngredients : !string.IsNullOrEmpty(entry.Recognition?.Brand) ? [] : entry.Recognition?.VisibleFoods ?? [])),
+            string.Join("; ", entry.EditedIngredients ?? entry.Product?.Ingredients ?? (entry.Recognition?.LabelIngredients.Length > 0 ? entry.Recognition.LabelIngredients : entry.Recognition?.VisibleFoods ?? [])),
             entry.EditedAt is not null ? "user-edited" : entry.Product is not null ? "product-database-unconfirmed" : "ai-unconfirmed",
             entry.EditedAt?.ToString("O") ?? "", entry.Barcode, entry.Product?.Source ?? "", entry.Product?.MatchMethod ?? "", entry.Product?.SourceUrl ?? "" }.Select(x => DiaryStore.Csv(x))));
     }
@@ -436,9 +436,17 @@ sealed class AnalysisWorker(DiaryStore store, FoodRecognition recognition, IHttp
                 {
                     product = result.Barcode != "" ? await ProductLookup.Find(result.Barcode, clients, cancellationToken) : null;
                     product ??= await ProductLookup.Search(result.Brand, result.ProductName, entry.Zone, clients, cancellationToken);
-                    if (product is null && result.Brand != "")
+                    if (product is null)
                     {
-                        result = result with { Uncertainties = result.Uncertainties.Append("No matching ingredient list was found for this exact product. A photo of its barcode or ingredients label can provide it.").ToArray() };
+                        var ingredients = await recognition.Analyze(entry, store, cancellationToken, result);
+                        result = result with
+                        {
+                            VisibleFoods = ingredients.Recognized ? ingredients.VisibleFoods : result.VisibleFoods,
+                            Uncertainties = ingredients.Uncertainties,
+                            InputTokens = (result.InputTokens ?? 0) + (ingredients.InputTokens ?? 0),
+                            OutputTokens = (result.OutputTokens ?? 0) + (ingredients.OutputTokens ?? 0),
+                            CachedInputTokens = (result.CachedInputTokens ?? 0) + (ingredients.CachedInputTokens ?? 0)
+                        };
                     }
                 }
                 await store.Update(entry.Id, x => x with { Status = result.Recognized ? "Identified" : "Uncertain",

@@ -145,7 +145,7 @@ for (const slot of document.querySelectorAll('[data-icon]')) { slot.replaceChild
 const timeLabel = (value) => new Date(value).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 const entryTitle = (entry) => entry.title || (entry.kind === 'food' ? 'Food photo' : 'Stomach check-in');
 const ingredientItems = (entry) => entry.editedIngredients ?? entry.product?.ingredients ??
-  (entry.recognition?.labelIngredients?.length ? entry.recognition.labelIngredients : entry.recognition?.brand ? [] : entry.recognition?.visibleFoods || []);
+  (entry.recognition?.labelIngredients?.length ? entry.recognition.labelIngredients : entry.recognition?.visibleFoods || []);
 async function render() {
   const pending = await drafts();
   const entries = new Map(serverEntries.map((entry) => [entry.id, entry]));
@@ -211,10 +211,8 @@ function openEntry(entry) {
     if (entry.product.sourceUrl?.startsWith('https://world.openfoodfacts.org/product/')) {
       const source = node('a', 'View product source'); source.href = entry.product.sourceUrl; source.target = '_blank'; source.rel = 'noopener noreferrer'; details.append(source);
     }
-  } else if (entry.recognition?.brand && !entry.recognition?.labelIngredients?.length) {
-    details.append(node('p', 'No ingredient list found for this exact product. Try its barcode or ingredients label.', 'hint'));
   }
-  details.append(node('p', entry.editedAt ? 'Edited by you. Original suggestions are kept below.' : entry.product ? 'From Open Food Facts. Check against your package.' : 'AI suggestions. Add anything missed or remove anything incorrect.', 'hint'));
+  details.append(node('p', entry.editedAt ? 'Edited by you. Original suggestions are kept below.' : entry.product ? 'From Open Food Facts. Check against your package.' : 'Add anything missed or remove anything incorrect.', 'hint'));
   let ingredients = [...ingredientItems(entry)];
   const list = node('ul', '', 'ingredient-list');
   const drawIngredients = () => {
