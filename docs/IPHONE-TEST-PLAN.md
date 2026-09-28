@@ -34,3 +34,10 @@ Record device model, iOS version, Safari version, test URL/build and date. Use n
 Known limitations: live AI quality/account access still unverified, no HEIC decoder, no meal editing/deletion/draft discard UI, single shared login, single-process persistence. Backdating a photo currently also backdates its attached stomach rating; keep prototype entries at the current time when testing that rating. Separate timestamps are required before real daily use. Offline local storage is a convenience, not a durable backup. Photo files remaining in the iPhone Photos app are user-owned and are never deleted by this app.
 
 Stop/go decision: do not start partner rollout until capture, upload recovery, privacy, reliable exports and real model evaluation pass. Log issues without attaching personal food/symptom data to the public repository.
+
+
+## Diary usability update — 2026-09-28
+
+Implemented compact Add / Timeline / More navigation, locally bundled Lucide SVG icons, optional pre-analysis descriptions, automatic photo interpretation, integrated barcode lookup with AI fallback, and per-entry ingredient/title corrections. Original suggestions and manual ingredients remain separate in storage and CSV. No production deployment is included in this update.
+
+Validation: .NET build, JavaScript syntax, HTTP smoke and fake-provider tests cover multipart descriptions, automatic label handling, ingredient removal/addition, preservation of edits during analysis, saved JSON/CSV, product lookup and missing-product AI fallback. Mobile browser review uses a 390 × 844 viewport. Real iPhone barcode and automatic small-print label accuracy still need device testing.

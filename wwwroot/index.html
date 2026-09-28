@@ -1,37 +1,18 @@
 <!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <meta name="theme-color" content="#f5f2eb"><meta name="apple-mobile-web-app-capable" content="yes">
-  <title>Food diary · field test</title><link rel="manifest" href="/manifest.webmanifest"><link rel="icon" href="/icon.svg" type="image/svg+xml"><link rel="stylesheet" href="/app.css">
-  <script src="/app.js" type="module"></script>
-</head>
-<body>
-  <main>
-    <header><div class="eyebrow">FOOD + FEELING</div><h1>A little more<br>understanding.</h1><p class="intro">A photo of your food. A moment to check in.</p></header>
-    <div class="test-banner"><strong>iPhone field test</strong><span id="analysis-notice">Sign in to check whether AI recognition is enabled.</span></div>
-    <section id="login-panel" class="panel"><h2>Your private diary</h2><form id="login-form"><label for="password">Access password</label><input type="password" id="password" autocomplete="current-password" required><button type="submit">Open diary</button></form><p id="login-error" role="alert"></p></section>
-    <div id="app" hidden>
-      <div class="toolbar"><span id="connection" role="status">Connecting…</span><button id="logout" class="text-button">Sign out</button></div>
-      <section class="panel composer">
-        <div class="section-head"><h2>What’s on your plate?</h2><span class="step">01 / CAPTURE</span></div>
-        <p>No description needed. Save now; processing happens later.</p>
-        <div class="capture-actions"><label class="button primary" for="camera">Take a photo</label><label class="button secondary" for="library">Choose a photo</label></div>
-        <input class="visually-hidden" type="file" id="camera" accept="image/*" capture="environment"><input class="visually-hidden" type="file" id="library" accept="image/*">
-        <label for="photo-kind">What are you photographing?</label><select id="photo-kind"><option value="meal">Meal or drink</option><option value="label">Ingredients label (more detail)</option></select>
-        <div id="selection" hidden><img id="selected-photo" alt="Your selected food photo"><p id="file-info"></p><button class="text-button" id="clear-photo">Remove photo</button></div>
-        <div class="section-head"><h3>How’s your stomach?</h3><span class="step">02 / CHECK IN</span></div>
-        <div class="feelings" role="group" aria-label="Stomach feeling"><button data-feeling="good" aria-pressed="false">Good <span>☺</span></button><button data-feeling="okay" aria-pressed="false">Okay <span>−</span></button><button data-feeling="bad" aria-pressed="false">Bad <span>⌁</span></button></div>
-        <p class="hint">Optional with a meal. Or save a stomach check-in on its own.</p>
-        <label for="occurred-at">When?</label><input id="occurred-at" type="datetime-local" required>
-        <details id="simulation-controls"><summary>Test controls</summary><label class="checkbox"><input type="checkbox" id="simulate-failure"> Simulate analysis failure, then test Retry</label><p class="hint">Successful simulations take at least 8 seconds. They identify no actual food.</p></details>
-        <button id="save" class="save" disabled>Save entry</button>
-        <p id="message" role="status" aria-live="polite"></p>
-      </section>
-      <section class="panel"><div class="section-head"><h2>Barcode check</h2><span class="step">COMPATIBILITY TEST</span></div><p>Photograph a barcode to test decoding and product lookup. This test does not add a diary entry.</p><label class="button secondary" for="barcode">Photograph barcode</label><input class="visually-hidden" id="barcode" type="file" accept="image/*" capture="environment"><p id="barcode-result" role="status">Use a clear, close photo of the entire barcode.</p></section>
-      <section class="diary"><div class="section-head"><h2>Your timeline</h2><a href="/api/export" class="text-button">Export CSV ↗</a></div><p class="hint">Pending photos stay on this device until a server preview is ready. Reopen the app to resume uploads.</p><div id="entries" aria-live="polite"></div></section>
-      <footer>To install: Safari → Share → Add to Home Screen.<br>Use test photos for this prototype. AI accuracy, HEIC and iPhone background behavior still need validation.</footer>
-    </div>
-  </main>
-</body>
-</html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#f5f2eb"><meta name="apple-mobile-web-app-capable" content="yes"><title>Foodstuff</title><link rel="manifest" href="/manifest.webmanifest"><link rel="icon" href="/icon.svg" type="image/svg+xml"><link rel="stylesheet" href="/app.css"><script src="/app.js" type="module"></script></head>
+<body><main>
+<header class="topbar"><a href="#add" class="brand"><span data-icon="leaf"></span>foodstuff<span class="brand-dot">.</span></a><span class="eyebrow">FOOD + FEELING</span></header>
+<section id="login-panel" class="panel"><h1>Your private diary</h1><p>A little more understanding, one meal at a time.</p><form id="login-form"><label for="password">Access password</label><input type="password" id="password" autocomplete="current-password" required><button type="submit" class="primary">Open diary</button></form><p id="login-error" role="alert"></p></section>
+<div id="app" hidden>
+<section id="view-add" class="view"><div class="page-heading"><div><span class="eyebrow">A MOMENT FOR YOU</span><h1>Add an entry</h1></div><span data-icon="plus" class="heading-icon"></span></div>
+<div class="panel composer"><div class="capture-actions"><label class="capture" for="camera"><span data-icon="camera"></span><strong>Take a photo</strong><small>Meal, label or barcode</small></label><label class="capture" for="library"><span data-icon="image"></span><strong>Choose photo</strong><small>From your library</small></label></div><input class="visually-hidden" type="file" id="camera" accept="image/*" capture="environment"><input class="visually-hidden" type="file" id="library" accept="image/*">
+<div id="selection" hidden><img id="selected-photo" alt="Selected food photo"><button id="clear-photo" class="icon-button" aria-label="Remove photo"><span data-icon="close"></span></button></div>
+<label for="description">Description <span class="optional">optional</span></label><textarea id="description" maxlength="1000" rows="2" placeholder="e.g. Homemade bolognese, with beef"></textarea>
+<h2 class="small-heading">How’s your stomach?</h2><div class="feelings" role="group" aria-label="Stomach feeling"><button data-feeling="good" aria-pressed="false"><span data-icon="good"></span>Good</button><button data-feeling="okay" aria-pressed="false"><span data-icon="okay"></span>Okay</button><button data-feeling="bad" aria-pressed="false"><span data-icon="bad"></span>Bad</button></div>
+<div class="time-row"><label for="occurred-at">When</label><input id="occurred-at" type="datetime-local" required></div><button id="save" class="primary save" disabled>Save entry</button><p class="hint">Photo optional for a stomach check-in. Analysis runs after saving.</p><p id="message" role="status" aria-live="polite"></p></div></section>
+<section id="view-timeline" class="view" hidden><div class="page-heading"><div><span class="eyebrow">THE EVERYDAY PICTURE</span><h1>Your timeline</h1></div><span data-icon="list" class="heading-icon"></span></div><div id="entries"></div></section>
+<section id="view-settings" class="view" hidden><div class="page-heading"><div><span class="eyebrow">YOUR DIARY</span><h1>Settings & more</h1></div><span data-icon="settings" class="heading-icon"></span></div><div class="panel settings-list"><a href="/api/export"><span data-icon="download"></span><span>Export CSV<small>Meals, ingredients and stomach check-ins</small></span><span data-icon="next"></span></a><button id="logout"><span data-icon="logout"></span><span>Sign out</span><span data-icon="next"></span></button></div><div class="panel"><h2>About your diary</h2><p id="analysis-notice"></p><p class="hint">AI and product ingredients are suggestions. Check them against what you actually ate.</p><p id="connection" role="status">Connecting…</p><p class="hint">Offline entries stay on this phone. Reopen to finish uploading.</p><p class="hint">Install on iPhone: Safari, Share, Add to Home Screen.</p><details id="simulation-controls"><summary>Test controls</summary><label><input type="checkbox" id="simulate-failure"> Simulate the next analysis failing</label></details></div></section>
+<nav class="bottom-nav" aria-label="Diary navigation"><a href="#add" data-view="add"><span data-icon="plus"></span>Add entry</a><a href="#timeline" data-view="timeline"><span data-icon="list"></span>Timeline</a><a href="#settings" data-view="settings"><span data-icon="settings"></span>More</a></nav>
+</div></main>
+<dialog id="entry-dialog" aria-labelledby="detail-heading"><div class="dialog-header"><h2 id="detail-heading">Entry details</h2><button id="close-detail" class="icon-button" aria-label="Close entry"><span data-icon="close"></span></button></div><div id="detail-content"></div></dialog>
+</body></html>

@@ -4,14 +4,18 @@ A private photo-and-symptom diary with non-blocking background food recognition.
 
 ## Recognition modes
 
-- `ANALYSIS_MODE=simulation` (default): no API calls, eight-second simulated jobs for camera/queue testing.
-- `ANALYSIS_MODE=openai`: real Responses API calls using `OPENAI_API_KEY` and `OPENAI_MODEL` (default `gpt-5.6-terra`). Billing/model access must be available. The app shows its active mode before capture. Old queued simulation entries stay simulated when the server switches modes.
+- `ANALYSIS_MODE=simulation` (default): no OpenAI calls (barcode product lookup still runs), eight-second simulated jobs for camera/queue testing.
+- `ANALYSIS_MODE=openai`: real Responses API calls using `OPENAI_API_KEY` and `OPENAI_MODEL` (default `gpt-5.6-terra`). Billing/model access must be available. The More view shows its active mode. Old queued simulation entries stay simulated when the server switches modes.
 
 Meal recognition sends the **exact <=2MP WebP preview, quality 80**, with explicit `detail: high`. Compression bytes are not the basis of image-token pricing; dimensions and detail settings matter.
 
-Choose **Ingredients label** for small print. While the original exists, the worker creates an in-memory, oriented, metadata-free **<=4MP WebP at quality 95**, with `detail: original`. It still stores only the smaller 2MP preview for viewing. This is bounded higher-resolution processing, not an unlimited full-resolution original upload. If the original has expired, retry uses the preview and records that fallback.
+The capture screen automatically handles meals, drinks, ingredient labels and barcode photos. An optional description (up to 1,000 characters) travels in the multipart body and accompanies the image in the AI request. No typing or photo-type selection is required. Automatic analysis uses the same 2MP/q80 preview; small label text can still be unreadable. Legacy explicitly labelled entries and the developer comparison setting retain the 4MP/q95 path.
 
-Visible foods, AI label transcriptions and uncertainties are stored separately. Descriptions remain labelled **AI suggestion / not confirmed**. Meal photos cannot populate the label-ingredients field. The prompt prohibits hidden-ingredient guesses, exact quantities, medical advice or diagnosis; model accuracy still needs evaluation.
+After the draft is saved locally, barcode decoding tries the photo. Recognized retail codes are looked up by the background worker in Open Food Facts and saved with the entry. Missing products or lookup failures fall back to photo recognition. Product ingredients are unverified database data, not AI observations. Unstructured product label text is preserved separately; long or unusually structured labels may require manual ingredient additions.
+
+Add entry, Timeline and More are separate mobile views. Timeline rows open details with editable meal names and a **See ingredients** list. Manual ingredients (including an intentionally empty list) are stored separately from original AI/product suggestions. Analysis completion cannot overwrite manual edits. Edits require a connection and show failures explicitly; new entries still queue offline. CSV includes descriptions, edited ingredients, edit timestamps, barcode and provenance alongside original suggestions.
+
+Icons are bundled locally from [Lucide](https://lucide.dev/guide/lucide) (ISC license); no external font or icon requests. Image + description inputs follow the [Responses vision guide](https://developers.openai.com/api/docs/guides/images-vision).
 
 Results are saved before original deletion. Original cleanup runs after successful analysis and for files over 24 hours old. Worker restarts recover queued jobs. Temporary failures get at most two scheduled retries (15s and 30s); billing/authentication failures, refusals and invalid/incomplete results require manual retry. Timeout/crash retries can incur additional charges: exactly-once provider billing is not guaranteed. No indefinite retry loop.
 

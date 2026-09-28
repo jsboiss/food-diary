@@ -1,1 +1,1 @@
-{"id":"/","name":"Food diary · field test","short_name":"Food diary","start_url":"/","display":"standalone","background_color":"#f5f2eb","theme_color":"#f5f2eb","icons":[{"src":"/icon.svg","sizes":"any","type":"image/svg+xml","purpose":"any"}]}
+{"id": "/", "name": "Foodstuff", "short_name": "Foodstuff", "start_url": "/", "display": "standalone", "background_color": "#f5f2eb", "theme_color": "#f5f2eb", "icons": [{"src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any"}]}

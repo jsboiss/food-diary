@@ -1,3 +1,4 @@
+import { icon } from '/icons.js';
 const $ = (selector) => document.querySelector(selector);
 let selected = null;
 let selectedUrl = null;
@@ -72,7 +73,6 @@ for (const input of [$('#camera'), $('#library')]) {
     selectedUrl = URL.createObjectURL(file);
     $('#selected-photo').src = selectedUrl;
     $('#selection').hidden = false;
-    $('#file-info').textContent = `${file.type || 'Unknown format'} · ${(file.size / 1024 / 1024).toFixed(1)} MB`;
     $('#message').textContent = '';
     updateSave();
   });
@@ -91,14 +91,14 @@ $('#save').onclick = async () => {
     const occurredAt = new Date($('#occurred-at').value);
     if (Number.isNaN(occurredAt.valueOf())) { throw new Error('Choose a valid time.'); }
     await put({ id: crypto.randomUUID(), kind: selected ? 'food' : 'symptom', blob: selected,
-      occurredAt: occurredAt.toISOString(), zone, feeling, photoKind: $('#photo-kind').value,
+      occurredAt: occurredAt.toISOString(), zone, feeling, photoKind: 'auto', description: $('#description').value.trim(),
       simulateFailure: analysisMode === 'simulation' && $('#simulate-failure').checked,
       uploaded: false, uploadError: null });
     clearPhoto();
     feeling = '';
     for (const button of document.querySelectorAll('[data-feeling]')) { button.setAttribute('aria-pressed', 'false'); }
     $('#simulate-failure').checked = false;
-    $('#photo-kind').value = 'meal';
+    $('#description').value = '';
     setTime();
     $('#message').textContent = 'Saved on this phone. You can carry on.';
     await render();
@@ -112,6 +112,21 @@ function node(tag, text, className) {
   if (className) { result.className = className; }
   return result;
 }
+let displayedEntries = new Map();
+function showView() {
+  const view = ['add', 'timeline', 'settings'].includes(location.hash.slice(1)) ? location.hash.slice(1) : 'add';
+  for (const section of document.querySelectorAll('.view')) { section.hidden = section.id !== `view-${view}`; }
+  for (const link of document.querySelectorAll('[data-view]')) {
+    if (link.dataset.view === view) { link.setAttribute('aria-current', 'page'); } else { link.removeAttribute('aria-current'); }
+  }
+  window.scrollTo(0, 0);
+}
+window.addEventListener('hashchange', showView);
+showView();
+for (const slot of document.querySelectorAll('[data-icon]')) { slot.replaceChildren(icon(slot.dataset.icon)); }
+const timeLabel = (value) => new Date(value).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+const entryTitle = (entry) => entry.title || (entry.kind === 'food' ? 'Food photo' : 'Stomach check-in');
+const ingredientItems = (entry) => entry.editedIngredients ?? entry.product?.ingredients ?? [...(entry.recognition?.visibleFoods || []), ...(entry.recognition?.labelIngredients || [])];
 async function render() {
   const pending = await drafts();
   const entries = new Map(serverEntries.map((entry) => [entry.id, entry]));
@@ -119,62 +134,124 @@ async function render() {
     entries.set(draft.id, { ...draft, ...entries.get(draft.id), localBlob: draft.blob,
       status: entries.get(draft.id)?.status || (draft.uploaded ? 'Queued' : 'Waiting to upload'), uploadError: draft.uploadError });
   }
+  displayedEntries = entries;
+  // Avoid replacing focused rows and images on every poll when nothing has changed.
+  const signature = JSON.stringify([...entries.values()].map(({localBlob, blob, ...entry}) => entry));
+  if ($('#entries').dataset.signature === signature) { return; }
+  $('#entries').dataset.signature = signature;
   for (const url of renderedUrls) { URL.revokeObjectURL(url); }
   renderedUrls = [];
   const fragment = document.createDocumentFragment();
+  let day = '';
   for (const entry of [...entries.values()].sort((a, b) => new Date(b.occurredAt) - new Date(a.occurredAt))) {
-    const article = node('article', '', 'entry');
+    const date = new Date(entry.occurredAt).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+    if (date !== day) { fragment.append(node('h2', date, 'day-heading')); day = date; }
+    const row = node('button', '', 'entry-row');
     if (entry.hasPreview || entry.localBlob) {
-      const link = node('a');
       const img = node('img');
       let url = `/api/entries/${entry.id}/preview`;
       if (!entry.hasPreview) { url = URL.createObjectURL(entry.localBlob); renderedUrls.push(url); }
-      img.src = url;
-      img.alt = 'Food photo';
-      link.href = url;
-      link.target = '_blank';
-      link.rel = 'noopener';
-      link.append(img);
-      article.append(link);
-    } else { article.append(node('div', entry.kind === 'symptom' ? '☺' : '◌', 'placeholder')); }
-    const content = node('div');
-    content.append(node('span', entry.status, 'badge'));
-    content.append(node('h3', entry.title || (entry.kind === 'food' ? 'Food photo' : 'Stomach check-in')));
-    content.append(node('p', `${new Date(entry.occurredAt).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })} · Stomach: ${entry.feeling || 'not recorded'}`));
-    if (entry.hasPreview) { content.append(node('p', `WebP · ${entry.width} × ${entry.height} · ${(entry.previewBytes / 1024).toFixed(0)} KB · 80% quality`)); }
-    if (entry.originalDeletedAt) { content.append(node('p', 'Server original deleted.')); }
-    if (entry.recognition) {
-      content.append(node('p', 'AI suggestion · not confirmed', 'badge'));
-      if (entry.recognition.visibleFoods.length) { content.append(node('p', `Visible foods: ${entry.recognition.visibleFoods.join(', ')}`)); }
-      if (entry.recognition.labelIngredients.length) { content.append(node('p', `Label transcription: ${entry.recognition.labelIngredients.join(', ')}`)); }
-      for (const uncertainty of entry.recognition.uncertainties) { content.append(node('p', uncertainty)); }
-      const details = node('details');
-      details.append(node('summary', 'Analysis details'));
-      details.append(node('p', `${entry.recognition.model} · ${entry.recognition.imageSource} · ${entry.recognition.width} × ${entry.recognition.height}`));
-      details.append(node('p', `Tokens: ${entry.recognition.inputTokens ?? 'unknown'} input / ${entry.recognition.outputTokens ?? 'unknown'} output. Retries may add cost.`));
-      content.append(details);
-    }
-    if (entry.error || entry.uploadError) { content.append(node('p', entry.error || entry.uploadError, 'error')); }
-    if (entry.status === 'Failed' && entry.hasPreview) {
-      const retry = node('button', 'Retry analysis', 'text-button');
-      retry.onclick = async () => {
-        retry.disabled = true;
-        try { await api(`/api/entries/${entry.id}/retry`, { method: 'POST' }); await sync(); }
-        catch (error) { $('#message').textContent = error.message; }
-        finally { retry.disabled = false; }
-      };
-      content.append(retry);
-    }
-    if (entry.uploadError) {
-      const retry = node('button', 'Retry upload', 'text-button');
-      retry.onclick = async () => { const draft = pending.find((item) => item.id === entry.id); await put({ ...draft, uploadError: null }); void sync(); };
-      content.append(retry);
-    }
-    article.append(content);
-    fragment.append(article);
+      img.src = url; img.alt = ''; img.loading = 'lazy'; row.append(img);
+    } else { const placeholder = node('span', '', 'placeholder'); placeholder.append(icon(entry.feeling || 'food')); row.append(placeholder); }
+    const copy = node('span', '', 'entry-copy');
+    copy.append(node('strong', entryTitle(entry)));
+    copy.append(node('small', `${timeLabel(entry.occurredAt)} · Stomach: ${entry.feeling || 'not recorded'}`));
+    if (!['Identified', 'Saved'].includes(entry.status)) { copy.append(node('small', entry.uploadError ? 'Upload needs attention' : entry.status)); }
+    row.append(copy, icon('next')); row.onclick = () => openEntry(entries.get(entry.id)); fragment.append(row);
   }
-  if (!entries.size) { fragment.append(node('div', 'Your first photo or check-in will appear here.', 'empty')); }
+  if (!entries.size) { fragment.append(node('div', 'A photo. A check-in.\nYour entries will appear here.', 'empty')); }
   $('#entries').replaceChildren(fragment);
+}
+let detailUrl = null;
+function closeDetail() { $('#entry-dialog').close(); }
+$('#close-detail').onclick = closeDetail;
+$('#entry-dialog').addEventListener('close', () => { if (detailUrl) { URL.revokeObjectURL(detailUrl); detailUrl = null; } });
+function openEntry(entry) {
+  if (detailUrl) { URL.revokeObjectURL(detailUrl); detailUrl = null; }
+  const content = $('#detail-content'); content.replaceChildren();
+  if (entry.hasPreview || entry.localBlob) {
+    const img = node('img', '', 'detail-photo');
+    img.src = entry.hasPreview ? `/api/entries/${entry.id}/preview` : (detailUrl = URL.createObjectURL(entry.localBlob));
+    img.alt = entryTitle(entry); content.append(img);
+  }
+  content.append(node('p', `${new Date(entry.occurredAt).toLocaleString()} · Stomach: ${entry.feeling || 'not recorded'}`, 'detail-meta'));
+  content.append(node('span', entry.status, 'badge'));
+  if (entry.description) { content.append(node('p', entry.description)); }
+  if (entry.error || entry.uploadError) { content.append(node('p', entry.error || entry.uploadError, 'error')); }
+  if (['Queued', 'Processing', 'RetryScheduled', 'Waiting to upload'].includes(entry.status)) {
+    content.append(node('p', 'Processing in the background. Reopen this entry shortly to see the result.', 'hint'));
+  }
+  const form = node('form', '', 'detail-form');
+  const titleLabel = node('label', 'Meal name'); titleLabel.htmlFor = 'edit-title';
+  const titleInput = node('input'); titleInput.id = 'edit-title'; titleInput.maxLength = 160; titleInput.required = true; titleInput.value = entryTitle(entry);
+  form.append(titleLabel, titleInput);
+  const details = node('details', '', 'ingredient-editor');
+  const summary = node('summary', `See ingredients (${ingredientItems(entry).length})`); details.append(summary);
+  details.append(node('p', entry.editedAt ? 'Edited by you. Original suggestions are kept below.' : entry.product ? 'From Open Food Facts. Check against your package.' : 'AI suggestions. Add anything missed or remove anything incorrect.', 'hint'));
+  let ingredients = [...ingredientItems(entry)];
+  const list = node('ul', '', 'ingredient-list');
+  const drawIngredients = () => {
+    list.replaceChildren(); summary.textContent = `See ingredients (${ingredients.length})`;
+    ingredients.forEach((item, index) => {
+      const row = node('li'); const removeButton = node('button', '', 'icon-button'); removeButton.type = 'button';
+      removeButton.setAttribute('aria-label', `Remove ${item}`); removeButton.append(icon('close'));
+      removeButton.onclick = () => { ingredients.splice(index, 1); drawIngredients(); };
+      row.append(node('span', item), removeButton); list.append(row);
+    });
+    if (!ingredients.length) { list.append(node('li', 'No ingredients yet.')); }
+  };
+  drawIngredients(); details.append(list);
+  const addRow = node('div', '', 'ingredient-add');
+  const ingredientInput = node('input'); ingredientInput.placeholder = 'Add an ingredient'; ingredientInput.maxLength = 300; ingredientInput.setAttribute('aria-label', 'Add an ingredient');
+  const addButton = node('button', 'Add', 'secondary'); addButton.type = 'button';
+  const addIngredient = () => { const value = ingredientInput.value.trim(); if (value && ingredients.length < 80 && !ingredients.some((item) => item.toLowerCase() === value.toLowerCase())) { ingredients.push(value); ingredientInput.value = ''; drawIngredients(); } };
+  addButton.onclick = addIngredient; ingredientInput.onkeydown = (event) => { if (event.key === 'Enter') { event.preventDefault(); addIngredient(); } };
+  addRow.append(ingredientInput, addButton); details.append(addRow); form.append(details);
+  if (entry.recognition || entry.product) {
+    const original = node('details'); original.append(node('summary', 'Original suggestions'));
+    if (entry.recognition) {
+      original.append(node('p', `Visible foods: ${entry.recognition.visibleFoods.join(', ') || 'None identified'}`));
+      if (entry.recognition.labelIngredients.length) { original.append(node('p', `Label: ${entry.recognition.labelIngredients.join(', ')}`)); }
+      for (const uncertainty of entry.recognition.uncertainties) { original.append(node('p', uncertainty)); }
+    }
+    if (entry.product) { original.append(node('p', `${entry.product.source}: ${entry.product.name}. ${entry.product.ingredientsText || entry.product.ingredients.join('; ')}`)); }
+    form.append(original);
+  }
+  const save = node('button', 'Save changes', 'primary'); save.type = 'submit';
+  const feedback = node('p', '', 'hint'); feedback.setAttribute('role', 'status');
+  save.disabled = !serverEntries.some((item) => item.id === entry.id);
+  if (save.disabled) { feedback.textContent = 'Ingredient edits are available after upload.'; }
+  form.append(save, feedback);
+  form.onsubmit = async (event) => {
+    event.preventDefault(); save.disabled = true; addIngredient();
+    try {
+      await api(`/api/entries/${entry.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: titleInput.value.trim(), ingredients }) });
+      feedback.textContent = 'Changes saved.'; await sync();
+    } catch (error) { feedback.textContent = `Not saved: ${error.message}`; }
+    finally { save.disabled = false; }
+  };
+  if (entry.kind === 'food') { content.append(form); }
+  if (entry.status === 'Failed' && entry.hasPreview) {
+    const retry = node('button', 'Retry analysis', 'secondary'); retry.onclick = async () => { retry.disabled = true; try { await api(`/api/entries/${entry.id}/retry`, { method: 'POST' }); closeDetail(); await sync(); } catch (error) { feedback.textContent = error.message; retry.disabled = false; } }; content.append(retry);
+  }
+  if (entry.uploadError) {
+    const retry = node('button', 'Retry upload', 'secondary'); retry.onclick = async () => { const draft = (await drafts()).find((item) => item.id === entry.id); if (draft) { await put({ ...draft, uploadError: null }); } closeDetail(); void sync(); }; content.append(retry);
+  }
+  if (!$('#entry-dialog').open) { $('#entry-dialog').showModal(); }
+}
+async function findBarcode(blob) {
+  // Decode on a bounded, downscaled canvas, after the entry is already saved locally.
+  const url = URL.createObjectURL(blob);
+  try {
+    const image = new Image(); image.src = url; await image.decode();
+    const canvas = document.createElement('canvas'); const scale = Math.min(1, 1600 / Math.max(image.naturalWidth, image.naturalHeight));
+    canvas.width = Math.round(image.naturalWidth * scale); canvas.height = Math.round(image.naturalHeight * scale);
+    canvas.getContext('2d').drawImage(image, 0, 0, canvas.width, canvas.height);
+    const { decodeBarcode } = await import('/barcode.js');
+    const code = await decodeBarcode(canvas.toDataURL('image/jpeg', .9));
+    return /^(?:[0-9]{8}|[0-9]{12,14})$/.test(code) ? code : '';
+  } catch { return ''; }
+  finally { URL.revokeObjectURL(url); }
 }
 async function sync() {
   if (syncing || !active) { return; }
@@ -193,8 +270,10 @@ async function sync() {
       try {
         if (draft.kind === 'food') {
           const query = new URLSearchParams({ occurredAt: draft.occurredAt, zone: draft.zone, feeling: draft.feeling,
-            photoKind: draft.photoKind || 'meal', simulateFailure: draft.simulateFailure });
-          await api(`/api/entries/${draft.id}/photo?${query}`, { method: 'PUT', body: draft.blob, headers: { 'Content-Type': 'application/octet-stream' } });
+            photoKind: draft.photoKind || 'auto', simulateFailure: draft.simulateFailure });
+          const body = new FormData(); body.append('photo', draft.blob, 'photo'); body.append('description', draft.description || '');
+          body.append('barcode', await findBarcode(draft.blob));
+          await api(`/api/entries/${draft.id}/photo?${query}`, { method: 'PUT', body });
           await put({ ...draft, uploaded: true });
         } else {
           await api(`/api/symptoms/${draft.id}`, { method: 'PUT', body: JSON.stringify(draft), headers: { 'Content-Type': 'application/json' } });
@@ -233,23 +312,10 @@ $('#logout').onclick = async () => {
   localStorage.removeItem('diary-opened');
   serverEntries = [];
   $('#entries').replaceChildren();
+  delete $('#entries').dataset.signature;
+  closeDetail();
   $('#app').hidden = true;
   $('#login-panel').hidden = false;
-};
-$('#barcode').onchange = async (event) => {
-  const file = event.target.files[0];
-  if (!file) { return; }
-  const url = URL.createObjectURL(file);
-  $('#barcode-result').textContent = 'Reading barcode…';
-  try {
-    const { decodeBarcode } = await import('/barcode.js');
-    const code = await decodeBarcode(url);
-    $('#barcode-result').textContent = `Barcode ${code}. Looking up product…`;
-    const response = await api(`/api/products/${encodeURIComponent(code)}`);
-    const product = await response.json();
-    $('#barcode-result').textContent = product.name ? `${code} · ${product.name}${product.brand ? ' · ' + product.brand : ''}. ${product.ingredients || 'No ingredient list available.'}` : `${code} decoded, but no product found. Manual/label-photo fallback is planned.`;
-  } catch (error) { $('#barcode-result').textContent = `Could not complete barcode test. ${error.message}`; }
-  finally { URL.revokeObjectURL(url); event.target.value = ''; }
 };
 window.addEventListener('online', async () => {
   for (const draft of await drafts()) { if (draft.uploadError) { await put({ ...draft, uploadError: null }); } }

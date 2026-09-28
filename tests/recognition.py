@@ -25,6 +25,12 @@ class Provider(BaseHTTPRequestHandler):
     def log_message(self, *args):
         pass
 
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header('Content-Type', 'application/json')
+        self.end_headers()
+        self.wfile.write(json.dumps({'product': {'product_name': 'Test oats', 'brands': 'Fixture', 'ingredients': [{'text': 'Oats'}], 'ingredients_text': 'Oats'}} if '12345678' in self.path else {}).encode())
+
     def do_POST(self):
         assert self.path == '/v1/responses'
         assert self.headers['Authorization'] == 'Bearer test-key-only'
@@ -80,14 +86,14 @@ def main():
         environment = {**os.environ, 'ASPNETCORE_ENVIRONMENT': 'Development', 'ASPNETCORE_URLS': base,
                        'DATA_PATH': directory, 'APP_PASSWORD': 'test-password-only', 'ANALYSIS_MODE': 'openai',
                        'OPENAI_API_KEY': 'test-key-only', 'OPENAI_MODEL': 'gpt-5.6-terra',
-                       'ANALYSIS_COMPARE_SOURCE': 'false',
+                       'ANALYSIS_COMPARE_SOURCE': 'false', 'PRODUCTS_URL': f'http://127.0.0.1:{provider.server_port}/',
                        'OPENAI_RESPONSES_URL': f'http://127.0.0.1:{provider.server_port}/v1/responses'}
         process = subprocess.Popen(['dotnet', str(ROOT / 'bin/Debug/net10.0/FoodDiary.dll')], cwd=ROOT, env=environment, stdout=log, stderr=log)
 
-        def request(path, method='GET', body=None):
+        def request(path, method='GET', body=None, content_type=None):
             data = json.dumps(body).encode() if isinstance(body, dict) else body
             req = urllib.request.Request(base + path, data=data, method=method,
-                headers={'X-Diary-Request': '1', 'Content-Type': 'application/json' if isinstance(body, dict) else 'application/octet-stream'})
+                headers={'X-Diary-Request': '1', 'Content-Type': content_type or ('application/json' if isinstance(body, dict) else 'application/octet-stream')})
             with client.open(req, timeout=10) as response:
                 return response.read()
 
@@ -139,6 +145,40 @@ def main():
             assert image['detail'] == 'original'
             assert webp_dimensions(base64.b64decode(image['image_url'].split(',')[1])) == (1600, 2400)
             assert entry['width'] * entry['height'] <= 2_000_000
+            auto = str(uuid.uuid4())
+            boundary = 'food-diary-test-boundary'
+            description = 'Homemade bolognese with beef & onion'
+            multipart = (f'--{boundary}\r\nContent-Disposition: form-data; name="description"\r\n\r\n{description}\r\n'
+                         f'--{boundary}\r\nContent-Disposition: form-data; name="photo"; filename="photo.png"\r\nContent-Type: image/png\r\n\r\n').encode() + png(80, 60) + f'\r\n--{boundary}--\r\n'.encode()
+            query = urllib.parse.urlencode({'occurredAt': dt.datetime.now(dt.timezone.utc).isoformat(), 'feeling': 'okay', 'zone': 'Australia/Brisbane'})
+            request(f'/api/entries/{auto}/photo?{query}', 'PUT', multipart, f'multipart/form-data; boundary={boundary}')
+            request(f'/api/entries/{auto}', 'PATCH', {'title': 'My bolognese', 'ingredients': ['beef', 'onion']})
+            entry = wait(auto, lambda item: item['status'] == 'Identified' and item['originalDeletedAt'])
+            assert entry['photoKind'] == 'auto' and entry['description'] == description
+            assert json.loads(Provider.calls[-1]['input'][0]['content'][0]['text'].split('data): ', 1)[1]) == description
+            assert entry['recognition']['labelIngredients'] == ['salt'], 'Automatic photos retain actual label transcription'
+            assert entry['title'] == 'My bolognese' and entry['editedIngredients'] == ['beef', 'onion'], 'Worker must preserve edits'
+            request(f'/api/entries/{auto}', 'PATCH', {'title': 'Bolognese', 'ingredients': []})
+            entry = wait(auto, lambda item: item['editedIngredients'] == [])
+            assert entry['recognition']['visibleFoods'] == ['rice', 'vegetables'], 'Original AI suggestions remain intact'
+            try:
+                request(f'/api/entries/{auto}', 'PATCH', {'title': 'x', 'ingredients': ['a' * 301]})
+                raise AssertionError('Oversized ingredient accepted')
+            except urllib.error.HTTPError as error:
+                assert error.code == 400
+            persisted = json.loads((Path(directory) / 'entries.json').read_text())[auto]
+            assert persisted['EditedIngredients'] == [] and persisted['Description'] == description
+            for code in ['12345678', '87654321']:
+                product_id = str(uuid.uuid4())
+                barcode_part = f'--{boundary}\r\nContent-Disposition: form-data; name="barcode"\r\n\r\n{code}\r\n'.encode()
+                before = len(Provider.calls)
+                request(f'/api/entries/{product_id}/photo?{query}', 'PUT', barcode_part + multipart, f'multipart/form-data; boundary={boundary}')
+                entry = wait(product_id, lambda item: item['status'] == 'Identified' and item['originalDeletedAt'])
+                if code == '12345678':
+                    assert entry['product']['name'] == 'Test oats' and entry['product']['ingredients'] == ['Oats']
+                    assert entry['recognition'] is None and len(Provider.calls) == before
+                else:
+                    assert entry['product'] is None and entry['recognition'] is not None
             for mode in ['quota', 'unauthorized', 'malformed', 'refusal', 'incomplete']:
                 before = len(Provider.calls)
                 entry_id = upload(mode)
@@ -159,6 +199,7 @@ def main():
             entry_id = upload('unknown')
             wait(entry_id, lambda item: item['status'] == 'Uncertain' and item['originalDeletedAt'])
             export = request('/api/export').decode('utf-8-sig')
+            assert 'user-edited' in export and description in export
             assert 'ai-unconfirmed' in export and 'source-4mp-q95' in export and 'preview-2mp-q80' in export
             print('PASS: compressed preview payload, higher-resolution label payload, structured request/result, usage, safe errors, billing failures, bounded retry scheduling, unknown images, CSV provenance and deletion. No real API calls.')
         finally:

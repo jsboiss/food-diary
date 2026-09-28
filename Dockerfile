@@ -10,7 +10,7 @@ WORKDIR /source
 COPY FoodDiary.csproj ./
 RUN dotnet restore
 COPY . .
-COPY --from=frontend /source/wwwroot/barcode.js* ./wwwroot/
+COPY --from=frontend /source/wwwroot/ ./wwwroot/
 RUN dotnet publish -c Release -o /app --no-restore
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0

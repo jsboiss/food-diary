@@ -35,3 +35,12 @@ Implemented opt-in OpenAI Responses integration, exact preview payloads for meal
 
 The automated recognition suite uses a loopback fake provider and synthetic images. It does not demonstrate real model accuracy, live API availability or measured costs. No real OpenAI requests were made while the owner was arranging credits. Real-device testing and original-versus-preview quality evaluation remain pending.
 `dotnet build` completed with zero warnings/errors. `npm run check`, `python tests/smoke.py` and `python tests/recognition.py` all passed for this integration.
+
+
+## Diary usability update — 2026-09-28
+
+Implemented compact Add / Timeline / More navigation, locally bundled Lucide SVG icons, optional pre-analysis descriptions, automatic photo interpretation, integrated barcode lookup with AI fallback, and per-entry ingredient/title corrections. Original suggestions and manual ingredients remain separate in storage and CSV. No production deployment is included in this update.
+
+Validation: .NET build, JavaScript syntax, HTTP smoke and fake-provider tests cover multipart descriptions, automatic label handling, ingredient removal/addition, preservation of edits during analysis, saved JSON/CSV, product lookup and missing-product AI fallback. Mobile browser review uses a 390 × 844 viewport. Real iPhone barcode and automatic small-print label accuracy still need device testing.
+
+Browser verification: saved a photo with optional description, corrected the title, added two ingredients, removed one, and reopened to verify persistence. A barcode fixture (3017620422003) used the same picker and saved Nutella plus Open Food Facts ingredients. Verified Add, Timeline and More at 390 × 844; fixed a stale photo-info element reference found during testing. No live OpenAI call was used for this update.

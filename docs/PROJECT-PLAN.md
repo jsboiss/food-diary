@@ -122,3 +122,10 @@ Operational checks: readiness/health, queue backlog/retry alerts, original-reten
 - https://webkit.org/blog/13878/web-push-for-web-apps-on-ios-and-ipados/
 - https://docs.railway.com/data-storage
 - https://openfoodfacts.github.io/documentation/
+
+
+## Diary usability update — 2026-09-28
+
+Implemented compact Add / Timeline / More navigation, locally bundled Lucide SVG icons, optional pre-analysis descriptions, automatic photo interpretation, integrated barcode lookup with AI fallback, and per-entry ingredient/title corrections. Original suggestions and manual ingredients remain separate in storage and CSV. No production deployment is included in this update.
+
+Validation: .NET build, JavaScript syntax, HTTP smoke and fake-provider tests cover multipart descriptions, automatic label handling, ingredient removal/addition, preservation of edits during analysis, saved JSON/CSV, product lookup and missing-product AI fallback. Mobile browser review uses a 390 × 844 viewport. Real iPhone barcode and automatic small-print label accuracy still need device testing.

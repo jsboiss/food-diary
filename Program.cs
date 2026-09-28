@@ -51,7 +51,12 @@ builder.Services.AddHttpClient("recognition", x => x.Timeout = TimeSpan.FromSeco
 builder.Services.AddSingleton<FoodRecognition>();
 builder.Services.AddHttpClient("products", x =>
 {
-    x.BaseAddress = new Uri("https://world.openfoodfacts.org/");
+    var endpoint = new Uri(builder.Configuration["PRODUCTS_URL"] ?? "https://world.openfoodfacts.org/");
+    if (endpoint.AbsoluteUri != "https://world.openfoodfacts.org/" && !(builder.Environment.IsDevelopment() && endpoint.IsLoopback && endpoint.Scheme == "http"))
+    {
+        throw new InvalidOperationException("Custom product endpoints are limited to local Development test servers.");
+    }
+    x.BaseAddress = endpoint;
     x.Timeout = TimeSpan.FromSeconds(12);
     x.DefaultRequestHeaders.UserAgent.ParseAdd("FoodDiaryPrototype/0.1 (https://github.com/jsboiss/food-diary)");
 });
@@ -139,14 +144,20 @@ app.MapPut("/api/entries/{id:guid}/photo", async (Guid id, HttpRequest request, 
         return Results.BadRequest(new { error = "Invalid time or stomach rating." });
     }
     var photoKind = request.Query["photoKind"].ToString();
-    if (photoKind == "") { photoKind = "meal"; }
-    if (photoKind is not ("meal" or "label")) { return Results.BadRequest(); }
+    if (photoKind == "") { photoKind = "auto"; }
+    if (photoKind is not ("auto" or "meal" or "label")) { return Results.BadRequest(); }
+    var form = request.HasFormContentType ? await request.ReadFormAsync() : null;
+    var description = form?["description"].ToString().Trim() ?? "";
+    var barcode = form?["barcode"].ToString() ?? "";
+    if (description.Length > 1000 || (barcode != "" && !ProductLookup.ValidCode(barcode))) { return Results.BadRequest(); }
+    if (form is not null && (form.Files.Count != 1 || form.Files.GetFile("photo") is null)) { return Results.BadRequest(); }
     var temporary = Path.Combine(store.DataPath, $"{Guid.NewGuid()}.upload");
     try
     {
         await using (var output = File.Create(temporary))
         {
-            await request.Body.CopyToAsync(output, request.HttpContext.RequestAborted);
+            if (form is null) { await request.Body.CopyToAsync(output, request.HttpContext.RequestAborted); }
+            else { await form.Files.GetFile("photo")!.CopyToAsync(output, request.HttpContext.RequestAborted); }
         }
         if (new FileInfo(temporary).Length == 0)
         {
@@ -155,7 +166,7 @@ app.MapPut("/api/entries/{id:guid}/photo", async (Guid id, HttpRequest request, 
         var entry = new DiaryEntry(id, "food", occurredAt, DateTimeOffset.UtcNow,
             request.Query["zone"].ToString(), request.Query["feeling"].ToString(), "Queued",
             "Food photo", null, false, 0, 0, 0, options.Mode == "simulation" && request.Query["simulateFailure"] == "true", 0, null,
-            PhotoKind: photoKind, AnalysisMode: options.Mode);
+            PhotoKind: photoKind, AnalysisMode: options.Mode, Description: description, Barcode: barcode);
         return Results.Accepted($"/api/entries/{id}", await store.Create(entry, temporary));
     }
     finally
@@ -178,6 +189,17 @@ app.MapGet("/api/entries/{id:guid}/preview", async (Guid id, DiaryStore store) =
     return entry?.HasPreview == true && File.Exists(store.Preview(id))
         ? Results.File(store.Preview(id), "image/webp") : Results.NotFound();
 }).RequireAuthorization();
+app.MapPatch("/api/entries/{id:guid}", async (Guid id, EntryEdit request, DiaryStore store) =>
+{
+    if (string.IsNullOrWhiteSpace(request.Title) || request.Title.Length > 160 || request.Ingredients is null ||
+        request.Ingredients.Length > 80 || request.Ingredients.Any(x => string.IsNullOrWhiteSpace(x) || x.Length > 300))
+    {
+        return Results.BadRequest();
+    }
+    if (await store.Get(id) is null) { return Results.NotFound(); }
+    await store.Update(id, x => x with { Title = request.Title.Trim(), EditedIngredients = request.Ingredients.Select(x => x.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray(), EditedAt = DateTimeOffset.UtcNow });
+    return Results.Ok(await store.Get(id));
+}).RequireAuthorization();
 app.MapPost("/api/entries/{id:guid}/retry", async (Guid id, DiaryStore store, RecognitionOptions options) =>
 {
     var entry = await store.Get(id);
@@ -191,16 +213,19 @@ app.MapPost("/api/entries/{id:guid}/retry", async (Guid id, DiaryStore store, Re
 }).RequireAuthorization();
 app.MapGet("/api/export", async (DiaryStore store) =>
 {
-    var rows = new List<string> { "id,event_type,occurred_at,recorded_at,time_zone,stomach,title,status,identification_source,preview_width,preview_height,original_deleted_at,photo_kind,visible_foods,label_ingredients,uncertainties,model,prompt_version,analysis_image,input_tokens,output_tokens,cached_input_tokens" };
+    var rows = new List<string> { "id,event_type,occurred_at,recorded_at,time_zone,stomach,title,status,identification_source,preview_width,preview_height,original_deleted_at,photo_kind,visible_foods,label_ingredients,uncertainties,model,prompt_version,analysis_image,input_tokens,output_tokens,cached_input_tokens,description,ingredients,ingredients_source,edited_at,barcode,product_source" };
     foreach (var entry in (await store.List()).OrderBy(x => x.OccurredAt))
     {
         rows.Add(string.Join(",", new[] { entry.Id.ToString(), entry.Kind, entry.OccurredAt.ToString("O"), entry.CreatedAt.ToString("O"),
-            entry.Zone, entry.Feeling, entry.Title, entry.Status, entry.Kind != "food" ? "user" : entry.Recognition is not null ? "ai-unconfirmed" : entry.Status == "Simulated" ? "simulation-not-food-recognition" : "pending-or-failed",
+            entry.Zone, entry.Feeling, entry.Title, entry.Status, entry.Kind != "food" ? "user" : entry.Product is not null ? "product-database-unconfirmed" : entry.Recognition is not null ? "ai-unconfirmed" : entry.Status == "Simulated" ? "simulation-not-food-recognition" : "pending-or-failed",
             entry.Width.ToString(), entry.Height.ToString(), entry.OriginalDeletedAt?.ToString("O") ?? "", entry.PhotoKind,
             string.Join("; ", entry.Recognition?.VisibleFoods ?? []), string.Join("; ", entry.Recognition?.LabelIngredients ?? []),
             string.Join("; ", entry.Recognition?.Uncertainties ?? []), entry.Recognition?.Model ?? "", entry.Recognition?.PromptVersion ?? "",
             entry.Recognition?.ImageSource ?? "", entry.Recognition?.InputTokens?.ToString() ?? "", entry.Recognition?.OutputTokens?.ToString() ?? "",
-            entry.Recognition?.CachedInputTokens?.ToString() ?? "" }.Select(x => DiaryStore.Csv(x))));
+            entry.Recognition?.CachedInputTokens?.ToString() ?? "", entry.Description,
+            string.Join("; ", entry.EditedIngredients ?? entry.Product?.Ingredients ?? (entry.Recognition?.VisibleFoods ?? []).Concat(entry.Recognition?.LabelIngredients ?? []).ToArray()),
+            entry.EditedAt is not null ? "user-edited" : entry.Product is not null ? "product-database-unconfirmed" : "ai-unconfirmed",
+            entry.EditedAt?.ToString("O") ?? "", entry.Barcode, entry.Product?.Source ?? "" }.Select(x => DiaryStore.Csv(x))));
     }
     return Results.File(Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(string.Join("\r\n", rows))).ToArray(), "text/csv; charset=utf-8", "food-diary.csv");
 }).RequireAuthorization();
@@ -212,7 +237,9 @@ record DiaryEntry(Guid Id, string Kind, DateTimeOffset OccurredAt, DateTimeOffse
     string Feeling, string Status, string Title, string? Error, bool HasPreview, int Width, int Height,
     long PreviewBytes, bool SimulateFailure, int Attempts, DateTimeOffset? OriginalDeletedAt,
     string PhotoKind = "meal", string AnalysisMode = "simulation", RecognitionResult? Recognition = null,
-    int RetryCount = 0, DateTimeOffset? NextAttemptAt = null);
+    int RetryCount = 0, DateTimeOffset? NextAttemptAt = null, string Description = "", string Barcode = "",
+    ProductInfo? Product = null, string[]? EditedIngredients = null, DateTimeOffset? EditedAt = null);
+record EntryEdit(string Title, string[]? Ingredients);
 
 sealed class DiaryStore
 {
@@ -282,7 +309,7 @@ sealed class DiaryStore
     }
 }
 
-sealed class AnalysisWorker(DiaryStore store, FoodRecognition recognition, ILogger<AnalysisWorker> logger) : BackgroundService
+sealed class AnalysisWorker(DiaryStore store, FoodRecognition recognition, IHttpClientFactory clients, ILogger<AnalysisWorker> logger) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -350,7 +377,12 @@ sealed class AnalysisWorker(DiaryStore store, FoodRecognition recognition, ILogg
                 File.Move(temporary, store.Preview(entry.Id), true);
                 await store.Update(entry.Id, x => x with { HasPreview = true, Width = width, Height = height, PreviewBytes = new FileInfo(store.Preview(entry.Id)).Length });
             }
-            if (entry.AnalysisMode == "simulation")
+            var product = entry.Barcode != "" ? await ProductLookup.Find(entry.Barcode, clients, cancellationToken) : null;
+            if (product is not null)
+            {
+                await store.Update(entry.Id, x => x with { Status = "Identified", Title = x.EditedAt is null ? product.Name : x.Title, Product = product, Error = null });
+            }
+            else if (entry.AnalysisMode == "simulation")
             {
                 await Task.Delay(TimeSpan.FromSeconds(8), cancellationToken);
                 if (entry.SimulateFailure) { throw new RecognitionFailure("Analysis simulation failed. Retry is available.", false); }
@@ -360,7 +392,7 @@ sealed class AnalysisWorker(DiaryStore store, FoodRecognition recognition, ILogg
             {
                 var result = await recognition.Analyze(entry, store, cancellationToken);
                 await store.Update(entry.Id, x => x with { Status = result.Recognized ? "Identified" : "Uncertain",
-                    Title = result.Title, Recognition = result, Error = null, NextAttemptAt = null });
+                    Title = x.EditedAt is null ? result.Title : x.Title, Recognition = result, Error = null, NextAttemptAt = null });
             }
             File.Delete(store.Original(entry.Id));
             await store.Update(entry.Id, x => x with { OriginalDeletedAt = DateTimeOffset.UtcNow });

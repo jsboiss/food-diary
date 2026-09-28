@@ -1,1 +1,17 @@
-{"name":"food-diary","version":"0.1.0","private":true,"type":"module","scripts":{"build":"esbuild src/barcode.js --bundle --format=esm --minify --outfile=wwwroot/barcode.js","check":"node --check wwwroot/app.js && node --check wwwroot/sw.js"},"dependencies":{"@zxing/browser":"^0.2.1"},"devDependencies":{"esbuild":"^0.28.2"}}
+{
+  "name": "food-diary",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "esbuild src/barcode.js --bundle --format=esm --minify --outfile=wwwroot/barcode.js && esbuild src/icons.js --bundle --format=esm --minify --outfile=wwwroot/icons.js",
+    "check": "node --check wwwroot/app.js && node --check wwwroot/sw.js"
+  },
+  "dependencies": {
+    "@zxing/browser": "^0.2.1",
+    "lucide": "^0.468.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2"
+  }
+}
