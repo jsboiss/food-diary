@@ -21,6 +21,7 @@ from smoke import png, webp_dimensions, ROOT
 class Provider(BaseHTTPRequestHandler):
     mode = 'success'
     calls = []
+    searches = []
 
     def log_message(self, *args):
         pass
@@ -29,7 +30,24 @@ class Provider(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header('Content-Type', 'application/json')
         self.end_headers()
-        self.wfile.write(json.dumps({'product': {'product_name': 'Test oats', 'brands': 'Fixture', 'ingredients': [{'text': 'Oats'}], 'ingredients_text': 'Oats'}} if '12345678' in self.path else {}).encode())
+        product = {'product_name': 'Test oats', 'brands': 'Fixture', 'ingredients': [{'text': 'Oats'}], 'ingredients_text': 'Oats'}
+        if self.path.startswith('/cgi/search.pl'):
+            type(self).searches.append(self.path)
+            exact = {'code': '12345678', 'product_name': 'Chocolate Fudge Brownie Ice Cream', 'brands': "Ben & Jerry's",
+                     'ingredients': [{'text': 'Cream'}, {'text': 'Brownie', 'ingredients': [{'text': 'Wheat flour'}, {'text': 'Cocoa'}]}],
+                     'ingredients_text': 'Cream, Brownie (Wheat flour, Cocoa)'}
+            wrong = {**exact, 'product_name': 'Non Dairy Chocolate Fudge Brownie', 'ingredients': [{'text': 'Almond milk'}]}
+            products = [wrong, exact]
+            if type(self).mode == 'package-ambiguous':
+                products.append({**exact, 'ingredients': [{'text': 'Different recipe'}]})
+            if type(self).mode == 'package-missing':
+                products = [wrong]
+            if type(self).mode == 'package-text':
+                products = [{**exact, 'ingredients': [], 'ingredients_text': 'Cream, Sugar, Brownie (Flour, Cocoa), Milk'}]
+            payload = {'products': products}
+        else:
+            payload = {'product': product} if '12345678' in self.path else {}
+        self.wfile.write(json.dumps(payload).encode())
 
     def do_POST(self):
         assert self.path == '/v1/responses'
@@ -61,7 +79,15 @@ class Provider(BaseHTTPRequestHandler):
             self.end_headers()
             return
         description = {'title': 'Rice and vegetables', 'recognized': mode != 'unknown', 'visibleFoods': ['rice', 'vegetables'],
-                       'labelIngredients': ['salt'], 'uncertainties': ['Sauce ingredients are unknown.']}
+                       'labelIngredients': ['salt'], 'uncertainties': ['Sauce ingredients are unknown.'],
+                       'brand': '', 'productName': '', 'barcode': ''}
+        if mode.startswith('package'):
+            description.update(title="Ben & Jerry's Chocolate Fudge Brownie", visibleFoods=['Ice cream'], labelIngredients=[],
+                               brand="Ben & Jerry's", productName='Chocolate Fudge Brownie')
+        if mode == 'package-label':
+            description['labelIngredients'] = ['Cream', 'Sugar']
+        if mode == 'package-barcode':
+            description['barcode'] = '12345678'
         content = [{'type': 'output_text', 'text': json.dumps(description) if mode != 'malformed' else '{broken'}]
         if mode == 'refusal':
             content = [{'type': 'refusal', 'refusal': 'Provider text should not be exposed'}]
@@ -193,6 +219,28 @@ def main():
                     assert entry['recognition'] is None and len(Provider.calls) == before
                 else:
                     assert entry['product'] is None and entry['recognition'] is not None
+            for mode in ['package', 'package-missing', 'package-ambiguous', 'package-text', 'package-label', 'package-barcode']:
+                searches_before = len(Provider.searches)
+                entry_id = upload(mode, kind='auto')
+                entry = wait(entry_id, lambda item: item['status'] == 'Identified' and item['originalDeletedAt'])
+                if mode in ['package-missing', 'package-ambiguous']:
+                    assert entry['product'] is None
+                    assert any('No matching ingredient list' in item for item in entry['recognition']['uncertainties'])
+                elif mode == 'package-label':
+                    assert entry['recognition']['labelIngredients'] == ['Cream', 'Sugar'] and entry['product'] is None
+                    assert len(Provider.searches) == searches_before
+                elif mode == 'package-barcode':
+                    assert entry['product']['matchMethod'] == 'barcode'
+                    assert len(Provider.searches) == searches_before
+                else:
+                    assert entry['product']['matchMethod'] == 'package-name'
+                    assert entry['product']['sourceUrl'] == 'https://world.openfoodfacts.org/product/12345678'
+                    assert 'Cream' in entry['product']['ingredients'] and 'Almond milk' not in entry['product']['ingredients']
+                    assert 'tag_0=australia' in Provider.searches[-1]
+                    if mode == 'package':
+                        assert 'Wheat flour' in entry['product']['ingredients']
+                    else:
+                        assert entry['product']['ingredients'] == ['Cream', 'Sugar', 'Brownie (Flour, Cocoa)', 'Milk']
             for mode in ['quota', 'unauthorized', 'malformed', 'refusal', 'incomplete']:
                 before = len(Provider.calls)
                 entry_id = upload(mode)

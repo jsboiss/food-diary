@@ -233,7 +233,7 @@ app.MapPost("/api/entries/{id:guid}/retry", async (Guid id, DiaryStore store, Re
 }).RequireAuthorization();
 app.MapGet("/api/export", async (DiaryStore store) =>
 {
-    var rows = new List<string> { "id,event_type,occurred_at,recorded_at,time_zone,stomach,title,status,identification_source,preview_width,preview_height,original_deleted_at,photo_kind,visible_foods,label_ingredients,uncertainties,model,prompt_version,analysis_image,input_tokens,output_tokens,cached_input_tokens,description,ingredients,ingredients_source,edited_at,barcode,product_source" };
+    var rows = new List<string> { "id,event_type,occurred_at,recorded_at,time_zone,stomach,title,status,identification_source,preview_width,preview_height,original_deleted_at,photo_kind,visible_foods,label_ingredients,uncertainties,model,prompt_version,analysis_image,input_tokens,output_tokens,cached_input_tokens,description,ingredients,ingredients_source,edited_at,barcode,product_source,product_match_method,product_url" };
     foreach (var entry in (await store.List()).OrderBy(x => x.OccurredAt))
     {
         rows.Add(string.Join(",", new[] { entry.Id.ToString(), entry.Kind, entry.OccurredAt.ToString("O"), entry.CreatedAt.ToString("O"),
@@ -243,9 +243,9 @@ app.MapGet("/api/export", async (DiaryStore store) =>
             string.Join("; ", entry.Recognition?.Uncertainties ?? []), entry.Recognition?.Model ?? "", entry.Recognition?.PromptVersion ?? "",
             entry.Recognition?.ImageSource ?? "", entry.Recognition?.InputTokens?.ToString() ?? "", entry.Recognition?.OutputTokens?.ToString() ?? "",
             entry.Recognition?.CachedInputTokens?.ToString() ?? "", entry.Description,
-            string.Join("; ", entry.EditedIngredients ?? entry.Product?.Ingredients ?? (entry.Recognition?.VisibleFoods ?? []).Concat(entry.Recognition?.LabelIngredients ?? []).ToArray()),
+            string.Join("; ", entry.EditedIngredients ?? entry.Product?.Ingredients ?? (entry.Recognition?.LabelIngredients.Length > 0 ? entry.Recognition.LabelIngredients : !string.IsNullOrEmpty(entry.Recognition?.Brand) ? [] : entry.Recognition?.VisibleFoods ?? [])),
             entry.EditedAt is not null ? "user-edited" : entry.Product is not null ? "product-database-unconfirmed" : "ai-unconfirmed",
-            entry.EditedAt?.ToString("O") ?? "", entry.Barcode, entry.Product?.Source ?? "" }.Select(x => DiaryStore.Csv(x))));
+            entry.EditedAt?.ToString("O") ?? "", entry.Barcode, entry.Product?.Source ?? "", entry.Product?.MatchMethod ?? "", entry.Product?.SourceUrl ?? "" }.Select(x => DiaryStore.Csv(x))));
     }
     return Results.File(Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(string.Join("\r\n", rows))).ToArray(), "text/csv; charset=utf-8", "food-diary.csv");
 }).RequireAuthorization();
@@ -431,8 +431,18 @@ sealed class AnalysisWorker(DiaryStore store, FoodRecognition recognition, IHttp
             else
             {
                 var result = await recognition.Analyze(entry, store, cancellationToken);
+                // A readable label is already the best recipe for the photographed package.
+                if (result.Recognized && result.LabelIngredients.Length == 0)
+                {
+                    product = result.Barcode != "" ? await ProductLookup.Find(result.Barcode, clients, cancellationToken) : null;
+                    product ??= await ProductLookup.Search(result.Brand, result.ProductName, entry.Zone, clients, cancellationToken);
+                    if (product is null && result.Brand != "")
+                    {
+                        result = result with { Uncertainties = result.Uncertainties.Append("No matching ingredient list was found for this exact product. A photo of its barcode or ingredients label can provide it.").ToArray() };
+                    }
+                }
                 await store.Update(entry.Id, x => x with { Status = result.Recognized ? "Identified" : "Uncertain",
-                    Title = x.EditedAt is null ? result.Title : x.Title, Recognition = result, Error = null, NextAttemptAt = null });
+                    Title = x.EditedAt is null ? product?.Name ?? result.Title : x.Title, Recognition = result, Product = product, Error = null, NextAttemptAt = null });
             }
             File.Delete(store.Original(entry.Id));
             await store.Update(entry.Id, x => x with { OriginalDeletedAt = DateTimeOffset.UtcNow });
