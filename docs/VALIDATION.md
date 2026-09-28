@@ -44,3 +44,15 @@ Implemented compact Add / Timeline / More navigation, locally bundled Lucide SVG
 Validation: .NET build, JavaScript syntax, HTTP smoke and fake-provider tests cover multipart descriptions, automatic label handling, ingredient removal/addition, preservation of edits during analysis, saved JSON/CSV, product lookup and missing-product AI fallback. Mobile browser review uses a 390 × 844 viewport. Real iPhone barcode and automatic small-print label accuracy still need device testing.
 
 Browser verification: saved a photo with optional description, corrected the title, added two ingredients, removed one, and reopened to verify persistence. A barcode fixture (3017620422003) used the same picker and saved Nutella plus Open Food Facts ingredients. Verified Add, Timeline and More at 390 × 844; fixed a stale photo-info element reference found during testing. No live OpenAI call was used for this update.
+
+
+Update/deletion checks: build and JS checks pass; six update-lifecycle tests cover safe automatic reload, blocked unsaved work, foreground checks, offline failure and loop prevention. HTTP recognition regression verifies deleted entries disappear from persisted JSON/CSV and both image paths, with idempotent repeated deletion. Existing smoke suite passes. Local HTTP checks confirm version metadata matches the endpoint, HTML/version are not cached, and the service worker script revalidates. Device suspension behavior still requires an iPhone after deployment.
+
+
+## Camera upload 400 investigation
+
+Railway recorded iPhone photo PUT requests returning 400 before analysis. The existing release returned empty responses for several validation failures, so the exact rejected field could not be identified from logs. Camera files are now copied into independent byte-backed Blobs before clearing the file input or storing the draft, and copied again when building multipart uploads (including existing drafts). Empty, unreadable, or incomplete files receive an actionable error. Upload validation errors are now shown in the app.
+
+Node tests cover byte independence after camera reference changes, draft cloning, multipart contents, and unreadable photos. The loopback recognition suite covers extensionless camera uploads with empty optional fields and a useful missing-photo response. A physical iPhone retry after deployment is still needed to confirm the reported incident is resolved.
+
+Local draft deletion: Timeline details now offer Delete entry for food photos that have not uploaded, including failed uploads. Unsent drafts can be removed offline. Ambiguous/failed uploads are reconciled with the server before removing the phone copy; active uploads are protected. Retry updates only modify drafts that still exist. Four deletion tests cover offline removal, failed uploads, blocked deletion and canceling confirmation.

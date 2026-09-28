@@ -20,6 +20,7 @@ jobs:
       - run: npm ci
       - run: npm run build
       - run: npm run check
+      - run: node --test tests/updates.mjs tests/uploads.mjs tests/deletion.mjs
       - run: dotnet build
       - run: python tests/smoke.py
       - run: python tests/recognition.py

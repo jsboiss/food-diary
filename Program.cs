@@ -62,6 +62,7 @@ builder.Services.AddHttpClient("products", x =>
 });
 builder.Services.AddHostedService<AnalysisWorker>();
 var app = builder.Build();
+var release = AppRelease.Load(app.Environment.WebRootPath);
 app.Use(async (context, next) =>
 {
     context.Response.Headers["X-Content-Type-Options"] = "nosniff";
@@ -76,14 +77,25 @@ app.Use(async (context, next) =>
             return;
         }
     }
+    if (context.Request.Method == "GET" && context.Request.Path.Value is "/" or "/index.html")
+    {
+        context.Response.Headers.CacheControl = "no-cache, no-store";
+        context.Response.ContentType = "text/html; charset=utf-8";
+        await context.Response.WriteAsync(release.Html);
+        return;
+    }
     await next();
 });
 app.UseDefaultFiles();
-app.UseStaticFiles();
+app.UseStaticFiles(new StaticFileOptions
+{
+    OnPrepareResponse = x => x.Context.Response.Headers.CacheControl = "no-cache"
+});
 app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
+app.MapGet("/api/version", () => Results.Ok(new { version = release.Version }));
 app.MapPost("/api/login", async (LoginRequest request, HttpContext context) =>
 {
     var actual = SHA256.HashData(Encoding.UTF8.GetBytes(request.Password ?? ""));
@@ -145,12 +157,16 @@ app.MapPut("/api/entries/{id:guid}/photo", async (Guid id, HttpRequest request, 
     }
     var photoKind = request.Query["photoKind"].ToString();
     if (photoKind == "") { photoKind = "auto"; }
-    if (photoKind is not ("auto" or "meal" or "label")) { return Results.BadRequest(); }
+    if (photoKind is not ("auto" or "meal" or "label")) { return Results.BadRequest(new { error = "Invalid photo type. Refresh the app and try again." }); }
     var form = request.HasFormContentType ? await request.ReadFormAsync() : null;
     var description = form?["description"].ToString().Trim() ?? "";
     var barcode = form?["barcode"].ToString() ?? "";
-    if (description.Length > 1000 || (barcode != "" && !ProductLookup.ValidCode(barcode))) { return Results.BadRequest(); }
-    if (form is not null && (form.Files.Count != 1 || form.Files.GetFile("photo") is null)) { return Results.BadRequest(); }
+    if (description.Length > 1000) { return Results.BadRequest(new { error = "Please keep the description within 1,000 characters." }); }
+    if (barcode != "" && !ProductLookup.ValidCode(barcode)) { return Results.BadRequest(new { error = "Invalid product barcode. Please take or choose the photo again." }); }
+    if (form is not null && (form.Files.Count != 1 || form.Files.GetFile("photo") is null))
+    {
+        return Results.BadRequest(new { error = "The upload did not include a photo. Please choose the photo again from your library." });
+    }
     var temporary = Path.Combine(store.DataPath, $"{Guid.NewGuid()}.upload");
     try
     {
@@ -199,6 +215,10 @@ app.MapPatch("/api/entries/{id:guid}", async (Guid id, EntryEdit request, DiaryS
     if (await store.Get(id) is null) { return Results.NotFound(); }
     await store.Update(id, x => x with { Title = request.Title.Trim(), EditedIngredients = request.Ingredients.Select(x => x.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray(), EditedAt = DateTimeOffset.UtcNow });
     return Results.Ok(await store.Get(id));
+}).RequireAuthorization();
+app.MapDelete("/api/entries/{id:guid}", async (Guid id, DiaryStore store) =>
+{
+    return await store.DeleteFood(id) ? Results.NoContent() : Results.Conflict(new { error = "Wait for analysis to finish before deleting this entry." });
 }).RequireAuthorization();
 app.MapPost("/api/entries/{id:guid}/retry", async (Guid id, DiaryStore store, RecognitionOptions options) =>
 {
@@ -295,10 +315,30 @@ sealed class DiaryStore
         await Gate.WaitAsync();
         try
         {
+            if (!Entries.ContainsKey(id)) { return; }
             var entry = update(Entries[id]);
             var next = new Dictionary<Guid, DiaryEntry>(Entries) { [id] = entry };
             await Persist(next);
             Entries[id] = entry;
+        }
+        finally { Gate.Release(); }
+    }
+    public async Task<bool> DeleteFood(Guid id)
+    {
+        await Gate.WaitAsync();
+        try
+        {
+            if (!Entries.TryGetValue(id, out var entry)) { return true; }
+            if (entry.Kind != "food" || entry.Status is not ("Identified" or "Uncertain" or "Simulated" or "Failed")) { return false; }
+            // Analysis cannot be active for these states. Serialize against edits and retries.
+            File.Delete(Original(id));
+            File.Delete(Preview(id));
+            File.Delete(Preview(id) + ".tmp");
+            var next = new Dictionary<Guid, DiaryEntry>(Entries);
+            next.Remove(id);
+            await Persist(next);
+            Entries.Remove(id);
+            return true;
         }
         finally { Gate.Release(); }
     }

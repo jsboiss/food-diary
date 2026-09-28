@@ -1,9 +1,14 @@
+import { watchUpdates } from '/updates.js';
+import { copyPhoto, photoForm } from '/uploads.js';
 import { icon } from '/icons.js';
 const $ = (selector) => document.querySelector(selector);
+let savingEntry = false;
 let selected = null;
 let selectedUrl = null;
 let feeling = '';
 let syncing = false;
+const deletingEntries = new Set();
+const uploadingEntries = new Set();
 let active = false;
 let serverEntries = [];
 let analysisMode = 'simulation';
@@ -35,6 +40,13 @@ async function transaction(mode, operation) {
 const drafts = () => transaction('readonly', (store) => store.getAll());
 const put = (draft) => transaction('readwrite', (store) => store.put(draft));
 const remove = (id) => transaction('readwrite', (store) => store.delete(id));
+const patchDraft = (id, changes) => transaction('readwrite', (store) => {
+  const request = store.get(id);
+  request.onsuccess = () => {
+    if (request.result && !deletingEntries.has(id)) { store.put({ ...request.result, ...changes }); }
+  };
+  return request;
+});
 async function api(url, options = {}) {
   const response = await fetch(url, { ...options, headers: { 'X-Diary-Request': '1', ...options.headers } });
   if (response.status === 401) {
@@ -44,13 +56,16 @@ async function api(url, options = {}) {
     throw new Error('Sign in to resume uploads.');
   }
   if (!response.ok) {
-    throw new Error(response.status === 413 ? 'Photo exceeds the 20 MB upload limit.' : `Request failed (${response.status}). Try again.`);
+    const detail = response.headers.get('content-type')?.includes('application/json')
+      ? await response.json().catch(() => null) : null;
+    throw new Error(typeof detail?.error === 'string' ? detail.error : response.status === 413 ? 'Photo exceeds the 20 MB upload limit.' : `Request failed (${response.status}). Try again.`);
   }
   return response;
 }
 function setTime() {
   const now = new Date();
   $('#occurred-at').value = new Date(now - now.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+  $('#occurred-at').dataset.initialValue = $('#occurred-at').value;
 }
 function updateSave() { $('#save').disabled = !selected && !feeling; }
 function clearPhoto() {
@@ -86,11 +101,13 @@ for (const button of document.querySelectorAll('[data-feeling]')) {
   };
 }
 $('#save').onclick = async () => {
+  savingEntry = true;
   $('#save').disabled = true;
   try {
     const occurredAt = new Date($('#occurred-at').value);
     if (Number.isNaN(occurredAt.valueOf())) { throw new Error('Choose a valid time.'); }
-    await put({ id: crypto.randomUUID(), kind: selected ? 'food' : 'symptom', blob: selected,
+    const photo = selected ? await copyPhoto(selected) : null;
+    await put({ id: crypto.randomUUID(), kind: photo ? 'food' : 'symptom', blob: photo,
       occurredAt: occurredAt.toISOString(), zone, feeling, photoKind: 'auto', description: $('#description').value.trim(),
       simulateFailure: analysisMode === 'simulation' && $('#simulate-failure').checked,
       uploaded: false, uploadError: null });
@@ -104,6 +121,7 @@ $('#save').onclick = async () => {
     await render();
     void sync();
   } catch (error) { $('#message').textContent = `Not saved: ${error.message}`; }
+  savingEntry = false;
   updateSave();
 };
 function node(tag, text, className) {
@@ -235,7 +253,32 @@ function openEntry(entry) {
     const retry = node('button', 'Retry analysis', 'secondary'); retry.onclick = async () => { retry.disabled = true; try { await api(`/api/entries/${entry.id}/retry`, { method: 'POST' }); closeDetail(); await sync(); } catch (error) { feedback.textContent = error.message; retry.disabled = false; } }; content.append(retry);
   }
   if (entry.uploadError) {
-    const retry = node('button', 'Retry upload', 'secondary'); retry.onclick = async () => { const draft = (await drafts()).find((item) => item.id === entry.id); if (draft) { await put({ ...draft, uploadError: null }); } closeDetail(); void sync(); }; content.append(retry);
+    const retry = node('button', 'Retry upload', 'secondary'); retry.onclick = async () => { await patchDraft(entry.id, { uploadError: null }); closeDetail(); void sync(); }; content.append(retry);
+  }
+  if (entry.kind === 'food') {
+    const deleteButton = node('button', 'Delete entry', 'secondary delete-entry');
+    deleteButton.disabled = serverEntries.some((item) => item.id === entry.id) && !['Identified', 'Uncertain', 'Simulated', 'Failed'].includes(entry.status);
+    if (deleteButton.disabled) { deleteButton.title = 'Wait for analysis to finish before deleting.'; }
+    deleteButton.onclick = async () => {
+      if (!window.confirm('Delete this food entry and its photo? This cannot be undone.')) { return; }
+      deleteButton.disabled = true;
+      deletingEntries.add(entry.id);
+      try {
+        if (uploadingEntries.has(entry.id)) { throw new Error('This photo is uploading. Wait a moment, then try again.'); }
+        const draft = (await drafts()).find((item) => item.id === entry.id);
+        const couldBeOnServer = serverEntries.some((item) => item.id === entry.id) || draft?.uploaded || draft?.uploadStarted || draft?.uploadError;
+        if (couldBeOnServer) {
+          if (!navigator.onLine) { throw new Error('Reconnect to finish deleting this entry.'); }
+          // A failed response can still mean the server received the upload.
+          await api(`/api/entries/${entry.id}`, { method: 'DELETE' });
+        }
+        await remove(entry.id);
+        serverEntries = serverEntries.filter((item) => item.id !== entry.id);
+        closeDetail(); await render();
+      } catch (error) { feedback.textContent = `Could not delete: ${error.message}`; deleteButton.disabled = false; }
+      finally { deletingEntries.delete(entry.id); }
+    };
+    content.append(deleteButton);
   }
   if (!$('#entry-dialog').open) { $('#entry-dialog').showModal(); }
 }
@@ -263,16 +306,21 @@ async function sync() {
     serverEntries = state.entries;
     setMode(state.mode);
     for (const draft of await drafts()) {
+      if (deletingEntries.has(draft.id)) { continue; }
       const server = serverEntries.find((entry) => entry.id === draft.id);
       if (server?.hasPreview || server?.kind === 'symptom') { await remove(draft.id); continue; }
       if (server || draft.uploaded || draft.uploadError) { continue; }
       $('#connection').textContent = 'Uploading · you can keep logging';
+      uploadingEntries.add(draft.id);
       try {
+        // The list above may have been read before a local deletion completed.
+        if (!(await drafts()).some((item) => item.id === draft.id)) { continue; }
+        await put({ ...draft, uploadStarted: true });
+        draft.uploadStarted = true;
         if (draft.kind === 'food') {
           const query = new URLSearchParams({ occurredAt: draft.occurredAt, zone: draft.zone, feeling: draft.feeling,
             photoKind: draft.photoKind || 'auto', simulateFailure: draft.simulateFailure });
-          const body = new FormData(); body.append('photo', draft.blob, 'photo'); body.append('description', draft.description || '');
-          body.append('barcode', await findBarcode(draft.blob));
+          const body = await photoForm(draft.blob, draft.description, await findBarcode(draft.blob));
           await api(`/api/entries/${draft.id}/photo?${query}`, { method: 'PUT', body });
           await put({ ...draft, uploaded: true });
         } else {
@@ -283,6 +331,7 @@ async function sync() {
         if (active) { await put({ ...draft, uploadError: error.message }); }
         throw error;
       }
+      finally { uploadingEntries.delete(draft.id); }
     }
     serverEntries = (await (await api('/api/entries')).json()).entries;
     $('#connection').textContent = analysisMode === 'openai' ? 'Connected · AI recognition on' : 'Connected · simulation mode';
@@ -318,11 +367,11 @@ $('#logout').onclick = async () => {
   $('#login-panel').hidden = false;
 };
 window.addEventListener('online', async () => {
-  for (const draft of await drafts()) { if (draft.uploadError) { await put({ ...draft, uploadError: null }); } }
+  for (const draft of await drafts()) { if (draft.uploadError) { await patchDraft(draft.id, { uploadError: null }); } }
   void sync();
 });
 document.addEventListener('visibilitychange', () => { if (!document.hidden) { void sync(); } });
 setInterval(() => { if (!document.hidden) { void sync(); } }, 3000);
 setTime();
-if ('serviceWorker' in navigator) { navigator.serviceWorker.register('/sw.js').catch(() => {}); }
+watchUpdates(() => savingEntry || syncing || !!selected || !!feeling || !!$('#description').value.trim() || $('#entry-dialog').open || !!$('#password').value || $('#occurred-at').value !== $('#occurred-at').dataset.initialValue);
 if (localStorage.getItem('diary-opened')) { void openDiary(); }

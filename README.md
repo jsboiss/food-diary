@@ -81,3 +81,10 @@ Real recognition accuracy, live API compatibility/account access, latency/cost a
 - Barcode compatibility test decodes with ZXing and looks up Open Food Facts; it does not yet save barcode entries.
 - Shared login, single-process disk persistence, no editing/deletion or user confirmation UI yet. Full production data, privacy and backup work is in [the full plan](docs/PROJECT-PLAN.md).
 - ImageSharp 3.1.12 uses the Six Labors Split License; review for your use before commercial distribution. 4.x upgrades require separate build-time license setup.
+
+
+## Updates and deleting entries
+
+The page carries a content-derived release identifier. On launch, foreground, reconnect and once a minute, it checks the uncached `/api/version` endpoint. New versions refresh automatically when no entry, password or detail editor is in progress; otherwise a banner waits until that work is finished. More includes a manual update check. Saved offline drafts remain in IndexedDB. A session guard prevents reload loops. Users on older builds need to fully close and reopen the installed app once to acquire this behavior. A suspended iPhone app cannot run checks until iOS resumes it.
+
+Food entry details include **Delete entry**, with confirmation. Completed or failed entries can be deleted, including their preview and retained original; the JSON log and CSV no longer contain them. Active analysis must finish first. Deletion requires connectivity and is serialized with edits/retries. Server backups, if configured separately, have their own retention policy.

@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "esbuild src/barcode.js --bundle --format=esm --minify --outfile=wwwroot/barcode.js && esbuild src/icons.js --bundle --format=esm --minify --outfile=wwwroot/icons.js",
-    "check": "node --check wwwroot/app.js && node --check wwwroot/sw.js"
+    "check": "node --check wwwroot/app.js && node --check wwwroot/sw.js && node --check wwwroot/updates.js"
   },
   "dependencies": {
     "@zxing/browser": "^0.2.1",

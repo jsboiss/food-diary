@@ -151,6 +151,20 @@ def main():
             multipart = (f'--{boundary}\r\nContent-Disposition: form-data; name="description"\r\n\r\n{description}\r\n'
                          f'--{boundary}\r\nContent-Disposition: form-data; name="photo"; filename="photo.png"\r\nContent-Type: image/png\r\n\r\n').encode() + png(80, 60) + f'\r\n--{boundary}--\r\n'.encode()
             query = urllib.parse.urlencode({'occurredAt': dt.datetime.now(dt.timezone.utc).isoformat(), 'feeling': 'okay', 'zone': 'Australia/Brisbane'})
+            # Match a first camera entry: no description, no barcode, extensionless filename.
+            camera_id = str(uuid.uuid4())
+            camera_body = (f'--{boundary}\r\nContent-Disposition: form-data; name="photo"; filename="photo"\r\nContent-Type: image/jpeg\r\n\r\n').encode() + png(80, 60) + (
+                f'\r\n--{boundary}\r\nContent-Disposition: form-data; name="description"\r\n\r\n\r\n'
+                f'--{boundary}\r\nContent-Disposition: form-data; name="barcode"\r\n\r\n\r\n'
+                f'--{boundary}--\r\n').encode()
+            request(f'/api/entries/{camera_id}/photo?{query}', 'PUT', camera_body, f'multipart/form-data; boundary={boundary}')
+            wait(camera_id, lambda item: item['status'] == 'Identified' and item['originalDeletedAt'])
+            missing_photo = (f'--{boundary}\r\nContent-Disposition: form-data; name="description"\r\n\r\n\r\n--{boundary}--\r\n').encode()
+            try:
+                request(f'/api/entries/{uuid.uuid4()}/photo?{query}', 'PUT', missing_photo, f'multipart/form-data; boundary={boundary}')
+                raise AssertionError('Missing photo accepted')
+            except urllib.error.HTTPError as error:
+                assert error.code == 400 and 'did not include a photo' in json.loads(error.read())['error']
             request(f'/api/entries/{auto}/photo?{query}', 'PUT', multipart, f'multipart/form-data; boundary={boundary}')
             request(f'/api/entries/{auto}', 'PATCH', {'title': 'My bolognese', 'ingredients': ['beef', 'onion']})
             entry = wait(auto, lambda item: item['status'] == 'Identified' and item['originalDeletedAt'])
@@ -198,7 +212,14 @@ def main():
             assert entry['attempts'] == 2
             entry_id = upload('unknown')
             wait(entry_id, lambda item: item['status'] == 'Uncertain' and item['originalDeletedAt'])
+            request(f'/api/entries/{meal}', 'DELETE')
+            request(f'/api/entries/{meal}', 'DELETE')  # repeated delete is safe
+            assert not any(item['id'] == meal for item in json.loads(request('/api/entries'))['entries'])
+            assert meal not in json.loads((Path(directory) / 'entries.json').read_text())
+            assert not (Path(directory) / f'{meal}.webp').exists()
+            assert not (Path(directory) / f'{meal}.original').exists()
             export = request('/api/export').decode('utf-8-sig')
+            assert meal not in export
             assert 'user-edited' in export and description in export
             assert 'ai-unconfirmed' in export and 'source-4mp-q95' in export and 'preview-2mp-q80' in export
             print('PASS: compressed preview payload, higher-resolution label payload, structured request/result, usage, safe errors, billing failures, bounded retry scheduling, unknown images, CSV provenance and deletion. No real API calls.')
