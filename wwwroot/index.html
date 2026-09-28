@@ -9,7 +9,7 @@
 <body>
   <main>
     <header><div class="eyebrow">FOOD + FEELING</div><h1>A little more<br>understanding.</h1><p class="intro">A photo of your food. A moment to check in.</p></header>
-    <div class="test-banner"><strong>iPhone field test</strong><span>Recognition is simulated. No photos are sent to AI.</span></div>
+    <div class="test-banner"><strong>iPhone field test</strong><span id="analysis-notice">Sign in to check whether AI recognition is enabled.</span></div>
     <section id="login-panel" class="panel"><h2>Your private diary</h2><form id="login-form"><label for="password">Access password</label><input type="password" id="password" autocomplete="current-password" required><button type="submit">Open diary</button></form><p id="login-error" role="alert"></p></section>
     <div id="app" hidden>
       <div class="toolbar"><span id="connection" role="status">Connecting…</span><button id="logout" class="text-button">Sign out</button></div>
@@ -18,12 +18,13 @@
         <p>No description needed. Save now; processing happens later.</p>
         <div class="capture-actions"><label class="button primary" for="camera">Take a photo</label><label class="button secondary" for="library">Choose a photo</label></div>
         <input class="visually-hidden" type="file" id="camera" accept="image/*" capture="environment"><input class="visually-hidden" type="file" id="library" accept="image/*">
+        <label for="photo-kind">What are you photographing?</label><select id="photo-kind"><option value="meal">Meal or drink</option><option value="label">Ingredients label (more detail)</option></select>
         <div id="selection" hidden><img id="selected-photo" alt="Your selected food photo"><p id="file-info"></p><button class="text-button" id="clear-photo">Remove photo</button></div>
         <div class="section-head"><h3>How’s your stomach?</h3><span class="step">02 / CHECK IN</span></div>
         <div class="feelings" role="group" aria-label="Stomach feeling"><button data-feeling="good" aria-pressed="false">Good <span>☺</span></button><button data-feeling="okay" aria-pressed="false">Okay <span>−</span></button><button data-feeling="bad" aria-pressed="false">Bad <span>⌁</span></button></div>
         <p class="hint">Optional with a meal. Or save a stomach check-in on its own.</p>
         <label for="occurred-at">When?</label><input id="occurred-at" type="datetime-local" required>
-        <details><summary>Test controls</summary><label class="checkbox"><input type="checkbox" id="simulate-failure"> Simulate analysis failure, then test Retry</label><p class="hint">Successful simulations take at least 8 seconds. They identify no actual food.</p></details>
+        <details id="simulation-controls"><summary>Test controls</summary><label class="checkbox"><input type="checkbox" id="simulate-failure"> Simulate analysis failure, then test Retry</label><p class="hint">Successful simulations take at least 8 seconds. They identify no actual food.</p></details>
         <button id="save" class="save" disabled>Save entry</button>
         <p id="message" role="status" aria-live="polite"></p>
       </section>

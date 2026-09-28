@@ -28,3 +28,10 @@ Date: 2026-09-27. Local Windows development environment, .NET 10.0.401, Node 24.
 - All full-product work outside this initial validation milestone (see PROJECT-PLAN.md).
 
 Only synthetic images and test ratings were used. Real images, health information, runtime data and credentials are excluded from Git. Initial source publication was explicitly authorized by the owner after local validation. No runtime data or credentials are included.
+
+## 2026-09-28: compressed-image recognition integration
+
+Implemented opt-in OpenAI Responses integration, exact preview payloads for meals, bounded higher-resolution label input, strict output schema, provenance/usage persistence, safe billing/access/refusal/incomplete-result errors, scheduled bounded retries, UI mode disclosure and CSV data. Added local `-WithAI` launcher and Railway variables.
+
+The automated recognition suite uses a loopback fake provider and synthetic images. It does not demonstrate real model accuracy, live API availability or measured costs. No real OpenAI requests were made while the owner was arranging credits. Real-device testing and original-versus-preview quality evaluation remain pending.
+`dotnet build` completed with zero warnings/errors. `npm run check`, `python tests/smoke.py` and `python tests/recognition.py` all passed for this integration.

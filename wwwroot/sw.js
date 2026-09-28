@@ -1,4 +1,4 @@
-const cacheName = 'food-diary-shell-v1';
+const cacheName = 'food-diary-shell-v2';
 const shell = ['/', '/index.html', '/app.js', '/app.css', '/fonts.css', '/manifest.webmanifest', '/icon.svg'];
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(cacheName).then((cache) => cache.addAll(shell)));

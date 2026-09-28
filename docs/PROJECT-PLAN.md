@@ -16,7 +16,7 @@ Non-negotiable requirements:
 6. Raw observations, uncertain AI guesses, product database ingredients and user corrections remain distinguishable in the UI and exports.
 7. Public source repository, private diary. No secrets, real photographs or health records in Git, logs, test fixtures or build contexts.
 
-## Milestone 0 — technical validation (current scope)
+## Milestone 0 — technical validation (baseline)
 
 Build an isolated working prototype to use on the owner's iPhone before completing the product.
 
@@ -26,15 +26,17 @@ Build an isolated working prototype to use on the owner's iPhone before completi
 - WebP proof: correct content type/signature, <=2MP, no upscaling, quality setting 80, no location metadata, correct orientation.
 - Barcode compatibility test: decode locally with ZXing; query Open Food Facts by code, with unknown-product and bad-scan handling. Barcode-entry persistence comes next.
 - Authentication, Home Screen installation, offline app shell and CSV round trip.
-- API key setup deliberately deferred. Add live model integration only after a separate credential decision.
+- API key setup completed locally. The next slice adds opt-in live model integration; real account/credit testing remains pending.
 
 Prototype implementation: ASP.NET Core, a small browser-native module UI, a single background worker, atomic JSON index and a mounted private data volume. This intentionally keeps the validation slice small. It is single-process only; it is not the final persistence design. React/TypeScript remains an option for the larger UI if complexity warrants it.
 
 Exit gate: owner completes docs/IPHONE-TEST-PLAN.md on actual iPhone and records failures; resolve blocking issues before relying on it daily. Desktop automated checks do not establish iPhone compatibility.
 
-## Milestone 1 — real recognition evaluation
+## Milestone 1 — real recognition evaluation (integration implemented; live evaluation pending)
 
 Provision an OpenAI API key securely on the server. Initial candidate: `gpt-5.6-terra`, Responses API, image input, schema-constrained output. Keep model/version/prompt version configurable and recorded per analysis.
+
+Image policy: ordinary meals use the exact <=2MP/quality-80 WebP preview with high detail. Label mode derives a metadata-free <=4MP/quality-95 WebP from the original in memory and uses original detail. An explicit comparison setting applies that bounded source policy to meals for evaluation; it is off by default. Original expiry falls back to preview. Both variants retain only the standard viewing preview after results are saved.
 
 Recognition contract:
 

@@ -13,6 +13,7 @@ test-results/
 *.suo
 *.log
 sixlabors.lic
+__pycache__/
 .vs/
 .idea/
 .DS_Store

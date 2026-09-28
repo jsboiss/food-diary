@@ -1,63 +1,79 @@
-# Food diary — iPhone validation prototype
+# Food diary — iPhone validation app
 
-A private, installable food-and-symptom diary. The source repository is public; diary data and images must remain private.
+A private photo-and-symptom diary with non-blocking background food recognition. Public source, private photos. No meal description or AI confirmation is required to save.
 
-**This build simulates recognition. It does not identify food and never calls OpenAI.** Real recognition and credentials are deferred by design. No meal description is required.
+## Recognition modes
 
-## What works in this slice
+- `ANALYSIS_MODE=simulation` (default): no API calls, eight-second simulated jobs for camera/queue testing.
+- `ANALYSIS_MODE=openai`: real Responses API calls using `OPENAI_API_KEY` and `OPENAI_MODEL` (default `gpt-5.6-terra`). Billing/model access must be available. The app shows its active mode before capture. Old queued simulation entries stay simulated when the server switches modes.
 
-- Camera/photo-library capture, one-tap stomach ratings, independent symptom entries and editable event time.
-- Immediate local save in IndexedDB; upload begins separately. Reopen the app to resume pending uploads.
-- Server background worker: auto-orient, cap at 2,000,000 pixels without upscaling, strip metadata, and encode a lossy **WebP preview at quality 80**.
-- Private previews attached to diary entries. The original stays private during a simulated eight-second analysis, then is deleted after the result is persisted.
-- Durable jobs survive server restarts; retry test failures; a cleanup sweep removes originals older than 24 hours. A remaining preview can be used after original expiry.
-- Password-protected app/API, basic login throttling, CSV export, offline app shell, and a barcode photo/lookup compatibility test.
+Meal recognition sends the **exact <=2MP WebP preview, quality 80**, with explicit `detail: high`. Compression bytes are not the basis of image-token pricing; dimensions and detail settings matter.
 
-The barcode test decodes locally with ZXing and sends only the barcode to Open Food Facts. It does not yet create a food entry. Product availability/ingredients are not guaranteed.
+Choose **Ingredients label** for small print. While the original exists, the worker creates an in-memory, oriented, metadata-free **<=4MP WebP at quality 95**, with `detail: original`. It still stores only the smaller 2MP preview for viewing. This is bounded higher-resolution processing, not an unlimited full-resolution original upload. If the original has expired, retry uses the preview and records that fallback.
 
-## Run locally
+Visible foods, AI label transcriptions and uncertainties are stored separately. Descriptions remain labelled **AI suggestion / not confirmed**. Meal photos cannot populate the label-ingredients field. The prompt prohibits hidden-ingredient guesses, exact quantities, medical advice or diagnosis; model accuracy still needs evaluation.
 
-Install .NET 10 and Node 24, then:
+Results are saved before original deletion. Original cleanup runs after successful analysis and for files over 24 hours old. Worker restarts recover queued jobs. Temporary failures get at most two scheduled retries (15s and 30s); billing/authentication failures, refusals and invalid/incomplete results require manual retry. Timeout/crash retries can incur additional charges: exactly-once provider billing is not guaranteed. No indefinite retry loop.
+
+## Local setup
+
+Install .NET 10 and Node 24:
 
 ```powershell
 npm ci
 npm run build
-$env:ASPNETCORE_ENVIRONMENT = 'Development'
-dotnet run --no-launch-profile --urls http://localhost:5080
+pwsh -File scripts/start-local.ps1
 ```
 
-Open `http://localhost:5080`. Development-only password: `local-test-only`. Never deploy with development mode enabled. Alternatively set your own `APP_PASSWORD` environment variable. Production refuses to start without a password of at least 16 characters.
+Open `http://localhost:5080`. Development-only password: `local-test-only`, or set `APP_PASSWORD`. To explicitly run real AI using the ignored local key:
 
-The `.env.example` is documentation, not an automatically loaded configuration file. No API key is needed. The default local data directory is `data/`, ignored by Git.
+```powershell
+pwsh -File scripts/start-local.ps1 -WithAI
+```
 
-## Host on Railway for iPhone testing
+The `-WithAI` launcher reads only `OPENAI_API_KEY` from `.env.local` without displaying it. ASP.NET does not automatically read env files. The ordinary launcher uses simulation. Production never loads `.env.local`; use service environment variables.
 
-1. Publish the reviewed source to the GitHub repository, then create a Railway service from it. The Dockerfile builds both frontend barcode code and the .NET app.
-2. Attach a persistent volume at `/data`. Set `DATA_PATH=/data`, `APP_PASSWORD` to a unique long password, and `ASPNETCORE_URLS=http://0.0.0.0:8080`. Keep `ASPNETCORE_ENVIRONMENT` unset (Production).
-3. Use exactly **one replica** for this prototype: its JSON index and worker are not a multi-instance queue.
-4. Configure Railway's public HTTPS domain with target port 8080. `/health` is the health check. Secure session cookies require HTTPS in production.
-5. Open that HTTPS URL on the iPhone in Safari, sign in, then Share → Add to Home Screen. Follow [the device test checklist](docs/IPHONE-TEST-PLAN.md).
+## Railway setup
 
-An ordinary LAN HTTP URL is not equivalent: service workers and related capabilities need a secure context. This repo includes deployment configuration but deployment/volume provisioning is a separate step. Protect/backup the volume, which includes cookie encryption keys. Do not commit its contents or include it in a Docker build.
+Deploy this repository with its Dockerfile, attach a persistent volume at `/data`, and configure:
 
-## Checks
+| Variable | Value |
+| --- | --- |
+| `APP_PASSWORD` | A unique password of at least 16 characters |
+| `DATA_PATH` | `/data` |
+| `ASPNETCORE_URLS` | `http://0.0.0.0:8080` |
+| `ANALYSIS_MODE` | `openai` when ready, otherwise `simulation` |
+| `OPENAI_API_KEY` | Your private API key, in Railway Variables only |
+| `OPENAI_MODEL` | `gpt-5.6-terra` |
+
+Keep `ASPNETCORE_ENVIRONMENT` unset (Production). Use **one replica**, since the JSON index is single-process persistence. Set the HTTPS domain target port to 8080. Health check: `/health`. Restart/redeploy after changing variables. Open Safari, sign in, then Share → Add to Home Screen.
+
+The key is not included in Git or Docker. Creating it does not add credits. Missing keys fail startup in OpenAI mode; insufficient credits produce a saved failed entry with a useful billing message. Use a private volume, and protect its cookie encryption keys and backups. The current preview/original expiry covers application-controlled copies; OpenAI retention follows the provider's policies. `store: false` is set, but this is not a guarantee of zero provider retention.
+
+## Cost and quality evaluation
+
+Each successful result records model/prompt version, image source/dimensions/detail, input tokens, cached input tokens and output tokens. These are available under Analysis details and in CSV. Failed calls and earlier paid retries may not be included in those successful-response counts; use the provider usage dashboard for billing totals.
+
+For a deliberate comparison, re-upload the same consented evaluation photos in two runs: default preview mode, then `ANALYSIS_COMPARE_SOURCE=true`. The latter uses the original to derive the bounded 4MP/quality-95 image with original detail, and increases likely cost. It performs one call per entry, not two automatic calls. Turn it off afterward. Capture accuracy, hidden-ingredient errors, readable label text, correction burden and usage. This comparison measures both resolution and detail-policy differences; do not attribute all cost differences to WebP compression.
+
+## Tests
 
 ```powershell
 dotnet build
 npm run check
 python tests/smoke.py
+python tests/recognition.py
 ```
 
-The smoke script starts an isolated local server against a temporary directory, tests synthetic images only, and cleans up the process. It requires a built Debug .NET binary and Python 3. It does not need credentials or network services.
+Tests use synthetic images, isolated temporary data and a loopback fake Responses endpoint. No real key, credits or OpenAI connection are needed. They verify actual request image bytes, format, orientation, metadata stripping, label detail, schemas, token persistence, error handling, queue recovery, retention and CSV. A custom `OPENAI_RESPONSES_URL` is accepted only for loopback HTTP in Development; it cannot redirect production keys elsewhere.
 
-## Limits to validate before real use
+Real recognition accuracy, live API compatibility/account access, latency/cost and iPhone behavior require additional testing. See [validation](docs/VALIDATION.md) and [the iPhone checklist](docs/IPHONE-TEST-PLAN.md).
 
-- JPEG, PNG and WebP are supported. Native HEIC is not supported by the current image library. Safari may provide a converted file; test camera and library separately. Unsupported photos remain visible as failed entries; do not claim HEIC support until device tests pass.
-- iOS can suspend an upload when the app closes. Local drafts retry on reopening; background upload while closed is not guaranteed. Browser storage may be evicted, so it is not a backup.
-- Pending originals remain locally until the server preview is available. A failed, undecodable photo can retain its local draft. Draft-management/deletion UX is still required before handing this to another user.
-- Upload limit: 20 MB; decoded image limit: 60 MP; only the first frame is processed. Encoding quality 80 is not an 80% file-size reduction.
-- Eight-second simulated recognition proves queue/lifecycle behavior, not model accuracy or real AI latency. No nutrition estimates or diagnoses are generated.
-- The prototype uses one shared account and a private local volume. Production plans include user accounts, PostgreSQL, object storage, deletion and backup/restore.
-- ImageSharp is pinned to 3.1.12. The 4.x release introduces a separate build-time license setup; upgrades should include license review. Review the Six Labors Split License against the intended use before commercial distribution. Third-party package notices must remain with bundled dependencies.
+## Current limitations
 
-See [the full project plan](docs/PROJECT-PLAN.md) for agreed scope and [validation results](docs/VALIDATION.md) for what has actually been tested.
+- JPEG, PNG and WebP supported; native HEIC is not. Test Safari's camera/library conversion separately. Upload limit 20MB, decoded limit 60MP, first frame only.
+- Local IndexedDB drafts resume when the app reopens. iOS background upload and storage persistence are not guaranteed. Invalid photos can retain local drafts; draft discard UI remains planned.
+- Separate symptom check-ins work. Backdating a meal currently also backdates an attached stomach rating; separate rating timestamps are required before real daily use.
+- Barcode compatibility test decodes with ZXing and looks up Open Food Facts; it does not yet save barcode entries.
+- Shared login, single-process disk persistence, no editing/deletion or user confirmation UI yet. Full production data, privacy and backup work is in [the full plan](docs/PROJECT-PLAN.md).
+- ImageSharp 3.1.12 uses the Six Labors Split License; review for your use before commercial distribution. 4.x upgrades require separate build-time license setup.

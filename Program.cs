@@ -45,6 +45,10 @@ builder.Services.AddRateLimiter(x => x.AddPolicy("login", y => RateLimitPartitio
     y.Connection.RemoteIpAddress?.ToString() ?? "unknown", z => new FixedWindowRateLimiterOptions
     { PermitLimit = 10, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 })));
 builder.Services.AddSingleton(new DiaryStore(dataPath));
+var recognitionOptions = RecognitionOptions.Read(builder.Configuration, builder.Environment);
+builder.Services.AddSingleton(recognitionOptions);
+builder.Services.AddHttpClient("recognition", x => x.Timeout = TimeSpan.FromSeconds(90));
+builder.Services.AddSingleton<FoodRecognition>();
 builder.Services.AddHttpClient("products", x =>
 {
     x.BaseAddress = new Uri("https://world.openfoodfacts.org/");
@@ -93,9 +97,9 @@ app.MapPost("/api/logout", async (HttpContext context) =>
     await context.SignOutAsync();
     return Results.Ok();
 }).RequireAuthorization();
-app.MapGet("/api/entries", async (DiaryStore store) => Results.Ok(new
+app.MapGet("/api/entries", async (DiaryStore store, RecognitionOptions options) => Results.Ok(new
 {
-    mode = "simulation", entries = (await store.List()).OrderByDescending(x => x.OccurredAt)
+    mode = options.Mode, entries = (await store.List()).OrderByDescending(x => x.OccurredAt)
 })).RequireAuthorization();
 app.MapGet("/api/products/{code}", async (string code, IHttpClientFactory clients) =>
 {
@@ -122,7 +126,7 @@ app.MapGet("/api/products/{code}", async (string code, IHttpClientFactory client
         return Results.StatusCode(502);
     }
 }).RequireAuthorization();
-app.MapPut("/api/entries/{id:guid}/photo", async (Guid id, HttpRequest request, DiaryStore store) =>
+app.MapPut("/api/entries/{id:guid}/photo", async (Guid id, HttpRequest request, DiaryStore store, RecognitionOptions options) =>
 {
     var existing = await store.Get(id);
     if (existing is not null)
@@ -134,6 +138,9 @@ app.MapPut("/api/entries/{id:guid}/photo", async (Guid id, HttpRequest request, 
     {
         return Results.BadRequest(new { error = "Invalid time or stomach rating." });
     }
+    var photoKind = request.Query["photoKind"].ToString();
+    if (photoKind == "") { photoKind = "meal"; }
+    if (photoKind is not ("meal" or "label")) { return Results.BadRequest(); }
     var temporary = Path.Combine(store.DataPath, $"{Guid.NewGuid()}.upload");
     try
     {
@@ -147,7 +154,8 @@ app.MapPut("/api/entries/{id:guid}/photo", async (Guid id, HttpRequest request, 
         }
         var entry = new DiaryEntry(id, "food", occurredAt, DateTimeOffset.UtcNow,
             request.Query["zone"].ToString(), request.Query["feeling"].ToString(), "Queued",
-            "Food photo", null, false, 0, 0, 0, request.Query["simulateFailure"] == "true", 0, null);
+            "Food photo", null, false, 0, 0, 0, options.Mode == "simulation" && request.Query["simulateFailure"] == "true", 0, null,
+            PhotoKind: photoKind, AnalysisMode: options.Mode);
         return Results.Accepted($"/api/entries/{id}", await store.Create(entry, temporary));
     }
     finally
@@ -170,24 +178,29 @@ app.MapGet("/api/entries/{id:guid}/preview", async (Guid id, DiaryStore store) =
     return entry?.HasPreview == true && File.Exists(store.Preview(id))
         ? Results.File(store.Preview(id), "image/webp") : Results.NotFound();
 }).RequireAuthorization();
-app.MapPost("/api/entries/{id:guid}/retry", async (Guid id, DiaryStore store) =>
+app.MapPost("/api/entries/{id:guid}/retry", async (Guid id, DiaryStore store, RecognitionOptions options) =>
 {
     var entry = await store.Get(id);
     if (entry?.Status != "Failed" || (!File.Exists(store.Original(id)) && !entry.HasPreview))
     {
         return Results.BadRequest(new { error = "This entry cannot be retried. Take or choose another photo." });
     }
-    await store.Update(id, x => x with { Status = "Queued", Error = null, SimulateFailure = false });
+    await store.Update(id, x => x.Status == "Failed" ? x with { Status = "Queued", Error = null, SimulateFailure = false,
+        AnalysisMode = options.Mode, RetryCount = 0, NextAttemptAt = null } : x);
     return Results.Accepted();
 }).RequireAuthorization();
 app.MapGet("/api/export", async (DiaryStore store) =>
 {
-    var rows = new List<string> { "id,event_type,occurred_at,recorded_at,time_zone,stomach,title,status,identification_source,preview_width,preview_height,original_deleted_at" };
+    var rows = new List<string> { "id,event_type,occurred_at,recorded_at,time_zone,stomach,title,status,identification_source,preview_width,preview_height,original_deleted_at,photo_kind,visible_foods,label_ingredients,uncertainties,model,prompt_version,analysis_image,input_tokens,output_tokens,cached_input_tokens" };
     foreach (var entry in (await store.List()).OrderBy(x => x.OccurredAt))
     {
         rows.Add(string.Join(",", new[] { entry.Id.ToString(), entry.Kind, entry.OccurredAt.ToString("O"), entry.CreatedAt.ToString("O"),
-            entry.Zone, entry.Feeling, entry.Title, entry.Status, entry.Kind == "food" ? "simulation-not-food-recognition" : "user",
-            entry.Width.ToString(), entry.Height.ToString(), entry.OriginalDeletedAt?.ToString("O") ?? "" }.Select(x => DiaryStore.Csv(x))));
+            entry.Zone, entry.Feeling, entry.Title, entry.Status, entry.Kind != "food" ? "user" : entry.Recognition is not null ? "ai-unconfirmed" : entry.Status == "Simulated" ? "simulation-not-food-recognition" : "pending-or-failed",
+            entry.Width.ToString(), entry.Height.ToString(), entry.OriginalDeletedAt?.ToString("O") ?? "", entry.PhotoKind,
+            string.Join("; ", entry.Recognition?.VisibleFoods ?? []), string.Join("; ", entry.Recognition?.LabelIngredients ?? []),
+            string.Join("; ", entry.Recognition?.Uncertainties ?? []), entry.Recognition?.Model ?? "", entry.Recognition?.PromptVersion ?? "",
+            entry.Recognition?.ImageSource ?? "", entry.Recognition?.InputTokens?.ToString() ?? "", entry.Recognition?.OutputTokens?.ToString() ?? "",
+            entry.Recognition?.CachedInputTokens?.ToString() ?? "" }.Select(x => DiaryStore.Csv(x))));
     }
     return Results.File(Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(string.Join("\r\n", rows))).ToArray(), "text/csv; charset=utf-8", "food-diary.csv");
 }).RequireAuthorization();
@@ -197,7 +210,9 @@ record LoginRequest(string? Password);
 record SymptomRequest(DateTimeOffset OccurredAt, string Zone, string Feeling);
 record DiaryEntry(Guid Id, string Kind, DateTimeOffset OccurredAt, DateTimeOffset CreatedAt, string Zone,
     string Feeling, string Status, string Title, string? Error, bool HasPreview, int Width, int Height,
-    long PreviewBytes, bool SimulateFailure, int Attempts, DateTimeOffset? OriginalDeletedAt);
+    long PreviewBytes, bool SimulateFailure, int Attempts, DateTimeOffset? OriginalDeletedAt,
+    string PhotoKind = "meal", string AnalysisMode = "simulation", RecognitionResult? Recognition = null,
+    int RetryCount = 0, DateTimeOffset? NextAttemptAt = null);
 
 sealed class DiaryStore
 {
@@ -267,7 +282,7 @@ sealed class DiaryStore
     }
 }
 
-sealed class AnalysisWorker(DiaryStore store, ILogger<AnalysisWorker> logger) : BackgroundService
+sealed class AnalysisWorker(DiaryStore store, FoodRecognition recognition, ILogger<AnalysisWorker> logger) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -279,7 +294,7 @@ sealed class AnalysisWorker(DiaryStore store, ILogger<AnalysisWorker> logger) : 
                 {
                     if (entry.Kind != "food") { continue; }
                     // Also recover a crash between saving results and deleting the original.
-                    if (entry.Status == "Simulated" || DateTimeOffset.UtcNow - entry.CreatedAt > TimeSpan.FromHours(24))
+                    if (entry.Status is "Simulated" or "Identified" or "Uncertain" || DateTimeOffset.UtcNow - entry.CreatedAt > TimeSpan.FromHours(24))
                     {
                         File.Delete(store.Original(entry.Id));
                         if (entry.OriginalDeletedAt is null)
@@ -287,7 +302,7 @@ sealed class AnalysisWorker(DiaryStore store, ILogger<AnalysisWorker> logger) : 
                             await store.Update(entry.Id, x => x with { OriginalDeletedAt = DateTimeOffset.UtcNow });
                         }
                     }
-                    if (entry.Status is "Queued" or "Processing")
+                    if (entry.Status is "Queued" or "Processing" || entry.Status == "RetryScheduled" && entry.NextAttemptAt <= DateTimeOffset.UtcNow)
                     {
                         await Process(entry, stoppingToken);
                     }
@@ -335,10 +350,18 @@ sealed class AnalysisWorker(DiaryStore store, ILogger<AnalysisWorker> logger) : 
                 File.Move(temporary, store.Preview(entry.Id), true);
                 await store.Update(entry.Id, x => x with { HasPreview = true, Width = width, Height = height, PreviewBytes = new FileInfo(store.Preview(entry.Id)).Length });
             }
-            // Deliberate stand-in. No food identity is fabricated, and no API is called.
-            await Task.Delay(TimeSpan.FromSeconds(8), cancellationToken);
-            if (entry.SimulateFailure) { throw new InvalidOperationException("Requested test failure."); }
-            await store.Update(entry.Id, x => x with { Status = "Simulated", Title = "Food photo · analysis simulation complete", Error = null });
+            if (entry.AnalysisMode == "simulation")
+            {
+                await Task.Delay(TimeSpan.FromSeconds(8), cancellationToken);
+                if (entry.SimulateFailure) { throw new RecognitionFailure("Analysis simulation failed. Retry is available.", false); }
+                await store.Update(entry.Id, x => x with { Status = "Simulated", Title = "Food photo · analysis simulation complete", Error = null });
+            }
+            else
+            {
+                var result = await recognition.Analyze(entry, store, cancellationToken);
+                await store.Update(entry.Id, x => x with { Status = result.Recognized ? "Identified" : "Uncertain",
+                    Title = result.Title, Recognition = result, Error = null, NextAttemptAt = null });
+            }
             File.Delete(store.Original(entry.Id));
             await store.Update(entry.Id, x => x with { OriginalDeletedAt = DateTimeOffset.UtcNow });
         }
@@ -347,10 +370,16 @@ sealed class AnalysisWorker(DiaryStore store, ILogger<AnalysisWorker> logger) : 
         {
             logger.LogWarning("Image job {EntryId} failed ({ExceptionType})", entry.Id, exception.GetType().Name);
             var current = await store.Get(entry.Id);
+            // A deletion failure must not erase a saved result or cause another paid call.
+            if (current?.Status is "Identified" or "Uncertain" or "Simulated") { return; }
+            var transient = exception is RecognitionFailure { Retryable: true } && entry.RetryCount < 2;
             await store.Update(entry.Id, x => x with
             {
-                Status = "Failed", Error = current?.HasPreview == true
-                    ? "Analysis simulation failed. Retry is available."
+                Status = transient ? "RetryScheduled" : "Failed",
+                RetryCount = transient ? x.RetryCount + 1 : x.RetryCount,
+                NextAttemptAt = transient ? DateTimeOffset.UtcNow.AddSeconds(15 * Math.Pow(2, entry.RetryCount)) : null,
+                Error = exception is RecognitionFailure failure ? failure.Message : current?.HasPreview == true
+                    ? "Analysis could not finish. Your photo is saved; retry is available."
                     : "Could not process this photo. Try JPEG, PNG or WebP; HEIC support still needs validation."
             });
         }

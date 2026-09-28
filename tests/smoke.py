@@ -59,7 +59,7 @@ def main():
     with tempfile.TemporaryDirectory(prefix='food-diary-test-') as directory:
         data_path = Path(directory)
         environment = {**os.environ, 'ASPNETCORE_ENVIRONMENT': 'Development', 'DATA_PATH': directory,
-                       'APP_PASSWORD': 'test-password-only', 'ASPNETCORE_URLS': base}
+                       'APP_PASSWORD': 'test-password-only', 'ASPNETCORE_URLS': base, 'ANALYSIS_MODE': 'simulation'}
         process = None
         log = tempfile.TemporaryFile(mode='w+b')
 

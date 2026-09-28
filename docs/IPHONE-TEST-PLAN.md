@@ -4,6 +4,10 @@ Record device model, iOS version, Safari version, test URL/build and date. Use n
 
 | Test | Expected result | Result/notes |
 | --- | --- | --- |
+| AI mode notice | In openai mode, disclosure appears before capture; simulation mode clearly says no AI requests | Pending |
+| Real meal recognition | With funded account, saved photo updates without blocking capture; uncertain ingredients remain unknown | Pending |
+| Ingredients label | Label option uses higher detail; result shows label transcription separately | Pending |
+| Credits unavailable | Failed entry remains with billing message; manual retry after adding credits | Pending |
 | Sign in / wrong password / sign out | Wrong password rejected; diary and photo URLs require session; sign out hides timeline | Pending |
 | Camera capture | Rear camera opens; selected photo displays; save needs no description | Pending |
 | Photo library JPEG, PNG, WebP, HEIC | First three process; document whether Safari converts HEIC; an unsupported format gives a visible error without losing entry | Pending |
@@ -27,6 +31,6 @@ Record device model, iOS version, Safari version, test URL/build and date. Use n
 | Home Screen / offline reopen | App shell opens; pending drafts visible; no claim of server sync while offline | Pending |
 | Camera denied / storage unavailable | No false success; usable error/recovery | Pending |
 
-Known limitations: no real AI, no HEIC decoder, no meal editing/deletion/draft discard UI, single shared login, single-process persistence. Backdating a photo currently also backdates its attached stomach rating; keep prototype entries at the current time when testing that rating. Separate timestamps are required before real daily use. Offline local storage is a convenience, not a durable backup. Photo files remaining in the iPhone Photos app are user-owned and are never deleted by this app.
+Known limitations: live AI quality/account access still unverified, no HEIC decoder, no meal editing/deletion/draft discard UI, single shared login, single-process persistence. Backdating a photo currently also backdates its attached stomach rating; keep prototype entries at the current time when testing that rating. Separate timestamps are required before real daily use. Offline local storage is a convenience, not a durable backup. Photo files remaining in the iPhone Photos app are user-owned and are never deleted by this app.
 
 Stop/go decision: do not start partner rollout until capture, upload recovery, privacy, reliable exports and real model evaluation pass. Log issues without attaching personal food/symptom data to the public repository.

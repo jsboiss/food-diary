@@ -5,6 +5,14 @@ let feeling = '';
 let syncing = false;
 let active = false;
 let serverEntries = [];
+let analysisMode = 'simulation';
+function setMode(mode) {
+  analysisMode = mode;
+  $('#analysis-notice').textContent = mode === 'openai'
+    ? 'AI recognition is on. Saved photos are sent to OpenAI. Suggestions may be wrong; hidden ingredients stay unknown.'
+    : 'Recognition is simulated. No photos are sent to AI.';
+  $('#simulation-controls').hidden = mode !== 'simulation';
+}
 let renderedUrls = [];
 const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 const database = new Promise((resolve, reject) => {
@@ -83,12 +91,14 @@ $('#save').onclick = async () => {
     const occurredAt = new Date($('#occurred-at').value);
     if (Number.isNaN(occurredAt.valueOf())) { throw new Error('Choose a valid time.'); }
     await put({ id: crypto.randomUUID(), kind: selected ? 'food' : 'symptom', blob: selected,
-      occurredAt: occurredAt.toISOString(), zone, feeling, simulateFailure: $('#simulate-failure').checked,
+      occurredAt: occurredAt.toISOString(), zone, feeling, photoKind: $('#photo-kind').value,
+      simulateFailure: analysisMode === 'simulation' && $('#simulate-failure').checked,
       uploaded: false, uploadError: null });
     clearPhoto();
     feeling = '';
     for (const button of document.querySelectorAll('[data-feeling]')) { button.setAttribute('aria-pressed', 'false'); }
     $('#simulate-failure').checked = false;
+    $('#photo-kind').value = 'meal';
     setTime();
     $('#message').textContent = 'Saved on this phone. You can carry on.';
     await render();
@@ -133,6 +143,17 @@ async function render() {
     content.append(node('p', `${new Date(entry.occurredAt).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })} · Stomach: ${entry.feeling || 'not recorded'}`));
     if (entry.hasPreview) { content.append(node('p', `WebP · ${entry.width} × ${entry.height} · ${(entry.previewBytes / 1024).toFixed(0)} KB · 80% quality`)); }
     if (entry.originalDeletedAt) { content.append(node('p', 'Server original deleted.')); }
+    if (entry.recognition) {
+      content.append(node('p', 'AI suggestion · not confirmed', 'badge'));
+      if (entry.recognition.visibleFoods.length) { content.append(node('p', `Visible foods: ${entry.recognition.visibleFoods.join(', ')}`)); }
+      if (entry.recognition.labelIngredients.length) { content.append(node('p', `Label transcription: ${entry.recognition.labelIngredients.join(', ')}`)); }
+      for (const uncertainty of entry.recognition.uncertainties) { content.append(node('p', uncertainty)); }
+      const details = node('details');
+      details.append(node('summary', 'Analysis details'));
+      details.append(node('p', `${entry.recognition.model} · ${entry.recognition.imageSource} · ${entry.recognition.width} × ${entry.recognition.height}`));
+      details.append(node('p', `Tokens: ${entry.recognition.inputTokens ?? 'unknown'} input / ${entry.recognition.outputTokens ?? 'unknown'} output. Retries may add cost.`));
+      content.append(details);
+    }
     if (entry.error || entry.uploadError) { content.append(node('p', entry.error || entry.uploadError, 'error')); }
     if (entry.status === 'Failed' && entry.hasPreview) {
       const retry = node('button', 'Retry analysis', 'text-button');
@@ -161,7 +182,9 @@ async function sync() {
   syncing = true;
   try {
     const response = await api('/api/entries');
-    serverEntries = (await response.json()).entries;
+    const state = await response.json();
+    serverEntries = state.entries;
+    setMode(state.mode);
     for (const draft of await drafts()) {
       const server = serverEntries.find((entry) => entry.id === draft.id);
       if (server?.hasPreview || server?.kind === 'symptom') { await remove(draft.id); continue; }
@@ -169,7 +192,8 @@ async function sync() {
       $('#connection').textContent = 'Uploading · you can keep logging';
       try {
         if (draft.kind === 'food') {
-          const query = new URLSearchParams({ occurredAt: draft.occurredAt, zone: draft.zone, feeling: draft.feeling, simulateFailure: draft.simulateFailure });
+          const query = new URLSearchParams({ occurredAt: draft.occurredAt, zone: draft.zone, feeling: draft.feeling,
+            photoKind: draft.photoKind || 'meal', simulateFailure: draft.simulateFailure });
           await api(`/api/entries/${draft.id}/photo?${query}`, { method: 'PUT', body: draft.blob, headers: { 'Content-Type': 'application/octet-stream' } });
           await put({ ...draft, uploaded: true });
         } else {
@@ -182,7 +206,7 @@ async function sync() {
       }
     }
     serverEntries = (await (await api('/api/entries')).json()).entries;
-    $('#connection').textContent = 'Connected · simulation mode';
+    $('#connection').textContent = analysisMode === 'openai' ? 'Connected · AI recognition on' : 'Connected · simulation mode';
   } catch (error) { $('#connection').textContent = error.message; }
   finally { syncing = false; await render(); }
 }
