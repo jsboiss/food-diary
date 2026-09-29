@@ -91,3 +91,6 @@ Food entry details include **Delete entry**, with confirmation. Completed or fai
 
 
 Package photos now trigger automatic brand/flavour ingredient lookup in Open Food Facts when no readable ingredient label or barcode result is available. Matching ingredients populate the entry without confirmation, including nested components. Ingredient source and matching method accompany the record and CSV export. When lookup returns no usable list, a second AI request supplies likely ingredients directly to the ordinary ingredients list, with no additional label or confirmation step. Existing entries are not automatically reanalysed.
+
+
+Text-only food entries: a nonblank description counts as food even without a photo or stomach rating. It is saved offline first and analysed in the background using text only. Named ingredients are extracted without inventing additions to an explicit list. Stomach-only check-ins remain available with no food description. All completed entry types, including stomach check-ins, can be deleted from their details. Tests cover text-only recognition, duplicate saves, validation, ingredient export/editing/deletion and repeated stomach-check-in deletion.

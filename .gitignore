@@ -21,3 +21,5 @@ Properties/launchSettings.json
 
 wwwroot/icons.js
 test-data-ui/
+
+test-data-text-ui/

@@ -62,3 +62,6 @@ Automatic package ingredients: mock integration tests cover named Ben & Jerry's 
 
 
 Ingredient fallback: a missing or ambiguous database result now triggers a second AI call with the compressed photo and identified food context. Its ingredients populate the normal list and CSV automatically. Successful barcode, label and name lookups skip the extra call. Mock tests verify both paths, ingredient export and combined API token counts. No live API call was used in this validation.
+
+
+Text-only food entries: a nonblank description counts as food even without a photo or stomach rating. It is saved offline first and analysed in the background using text only. Named ingredients are extracted without inventing additions to an explicit list. Stomach-only check-ins remain available with no food description. All completed entry types, including stomach check-ins, can be deleted from their details. Tests cover text-only recognition, duplicate saves, validation, ingredient export/editing/deletion and repeated stomach-check-in deletion.

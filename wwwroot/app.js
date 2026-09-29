@@ -67,7 +67,8 @@ function setTime() {
   $('#occurred-at').value = new Date(now - now.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
   $('#occurred-at').dataset.initialValue = $('#occurred-at').value;
 }
-function updateSave() { $('#save').disabled = !selected && !feeling; }
+function updateSave() { $('#save').disabled = savingEntry || (!selected && !feeling && !$('#description').value.trim()); }
+$('#description').addEventListener('input', updateSave);
 function clearPhoto() {
   selected = null;
   if (selectedUrl) { URL.revokeObjectURL(selectedUrl); }
@@ -107,8 +108,8 @@ $('#save').onclick = async () => {
     const occurredAt = new Date($('#occurred-at').value);
     if (Number.isNaN(occurredAt.valueOf())) { throw new Error('Choose a valid time.'); }
     const photo = selected ? await copyPhoto(selected) : null;
-    await put({ id: crypto.randomUUID(), kind: photo ? 'food' : 'symptom', blob: photo,
-      occurredAt: occurredAt.toISOString(), zone, feeling, photoKind: 'auto', description: $('#description').value.trim(),
+    await put({ id: crypto.randomUUID(), kind: photo || $('#description').value.trim() ? 'food' : 'symptom', blob: photo,
+      occurredAt: occurredAt.toISOString(), zone, feeling, photoKind: photo ? 'auto' : 'text', description: $('#description').value.trim(),
       simulateFailure: analysisMode === 'simulation' && $('#simulate-failure').checked,
       uploaded: false, uploadError: null });
     clearPhoto();
@@ -256,18 +257,19 @@ function openEntry(entry) {
     finally { save.disabled = false; }
   };
   if (entry.kind === 'food') { content.append(form); }
-  if (entry.status === 'Failed' && entry.hasPreview) {
+  if (entry.status === 'Failed' && (entry.hasPreview || entry.photoKind === 'text')) {
     const retry = node('button', 'Retry analysis', 'secondary'); retry.onclick = async () => { retry.disabled = true; try { await api(`/api/entries/${entry.id}/retry`, { method: 'POST' }); closeDetail(); await sync(); } catch (error) { feedback.textContent = error.message; retry.disabled = false; } }; content.append(retry);
   }
   if (entry.uploadError) {
     const retry = node('button', 'Retry upload', 'secondary'); retry.onclick = async () => { await patchDraft(entry.id, { uploadError: null }); closeDetail(); void sync(); }; content.append(retry);
   }
-  if (entry.kind === 'food') {
+  if (entry.kind === 'food' || entry.kind === 'symptom') {
+    if (entry.kind === 'symptom') { content.append(feedback); }
     const deleteButton = node('button', 'Delete entry', 'secondary delete-entry');
-    deleteButton.disabled = serverEntries.some((item) => item.id === entry.id) && !['Identified', 'Uncertain', 'Simulated', 'Failed'].includes(entry.status);
+    deleteButton.disabled = serverEntries.some((item) => item.id === entry.id) && !['Identified', 'Uncertain', 'Simulated', 'Failed', 'Saved'].includes(entry.status);
     if (deleteButton.disabled) { deleteButton.title = 'Wait for analysis to finish before deleting.'; }
     deleteButton.onclick = async () => {
-      if (!window.confirm('Delete this food entry and its photo? This cannot be undone.')) { return; }
+      if (!window.confirm(entry.kind === 'symptom' ? 'Delete this stomach check-in? This cannot be undone.' : 'Delete this food entry and any photo? This cannot be undone.')) { return; }
       deleteButton.disabled = true;
       deletingEntries.add(entry.id);
       try {
@@ -315,7 +317,7 @@ async function sync() {
     for (const draft of await drafts()) {
       if (deletingEntries.has(draft.id)) { continue; }
       const server = serverEntries.find((entry) => entry.id === draft.id);
-      if (server?.hasPreview || server?.kind === 'symptom') { await remove(draft.id); continue; }
+      if (server?.hasPreview || server?.kind === 'symptom' || server?.photoKind === 'text') { await remove(draft.id); continue; }
       if (server || draft.uploaded || draft.uploadError) { continue; }
       $('#connection').textContent = 'Uploading · you can keep logging';
       uploadingEntries.add(draft.id);
@@ -324,7 +326,10 @@ async function sync() {
         if (!(await drafts()).some((item) => item.id === draft.id)) { continue; }
         await put({ ...draft, uploadStarted: true });
         draft.uploadStarted = true;
-        if (draft.kind === 'food') {
+        if (draft.kind === 'food' && !draft.blob) {
+          await api(`/api/entries/${draft.id}/description`, { method: 'PUT', body: JSON.stringify(draft), headers: { 'Content-Type': 'application/json' } });
+          await remove(draft.id);
+        } else if (draft.kind === 'food') {
           const query = new URLSearchParams({ occurredAt: draft.occurredAt, zone: draft.zone, feeling: draft.feeling,
             photoKind: draft.photoKind || 'auto', simulateFailure: draft.simulateFailure });
           const body = await photoForm(draft.blob, draft.description, await findBarcode(draft.blob));

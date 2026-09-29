@@ -90,6 +90,9 @@ class Provider(BaseHTTPRequestHandler):
             description['barcode'] = '12345678'
         if 'approximate ingredient list' in body['instructions']:
             description.update(visibleFoods=['Milk', 'Sugar', 'Cocoa'], labelIngredients=[], uncertainties=[])
+        if 'Turn this written food description' in body['instructions']:
+            assert len(body['input'][0]['content']) == 1, 'Text entries must not send an image'
+            description.update(title='Tuna and avocado rice crackers', visibleFoods=['tomato', 'tuna', 'avocado', 'rice crackers'], labelIngredients=[], uncertainties=[])
         content = [{'type': 'output_text', 'text': json.dumps(description) if mode != 'malformed' else '{broken'}]
         if mode == 'refusal':
             content = [{'type': 'refusal', 'refusal': 'Provider text should not be exposed'}]
@@ -152,6 +155,32 @@ def main():
                 except (urllib.error.URLError, TimeoutError):
                     time.sleep(.1)
             request('/api/login', 'POST', {'password': 'test-password-only'})
+            text_id = str(uuid.uuid4())
+            text_body = {'occurredAt': dt.datetime.now(dt.timezone.utc).isoformat(), 'zone': 'Australia/Brisbane', 'feeling': '', 'description': 'tomato tuna and avocado rice crackers'}
+            before = len(Provider.calls)
+            request(f'/api/entries/{text_id}/description', 'PUT', text_body)
+            request(f'/api/entries/{text_id}/description', 'PUT', text_body)
+            text_entry = wait(text_id, lambda item: item['status'] == 'Identified')
+            assert text_entry['kind'] == 'food' and text_entry['photoKind'] == 'text' and not text_entry['hasPreview']
+            assert text_entry['description'] == text_body['description'] and text_entry['feeling'] == ''
+            assert text_entry['recognition']['visibleFoods'] == ['tomato', 'tuna', 'avocado', 'rice crackers']
+            assert len(Provider.calls) == before + 1
+            assert 'tomato; tuna; avocado; rice crackers' in request('/api/export').decode('utf-8-sig')
+            request(f'/api/entries/{text_id}', 'PATCH', {'title': 'Crackers', 'ingredients': ['tuna']})
+            request(f'/api/entries/{text_id}', 'DELETE')
+            assert not any(item['id'] == text_id for item in json.loads(request('/api/entries'))['entries'])
+            for invalid in ['', ' ', 'a' * 1001]:
+                try:
+                    request(f'/api/entries/{uuid.uuid4()}/description', 'PUT', {**text_body, 'description': invalid})
+                    raise AssertionError('Invalid text entry accepted')
+                except urllib.error.HTTPError as error:
+                    assert error.code == 400
+            symptom_id = str(uuid.uuid4())
+            request(f'/api/symptoms/{symptom_id}', 'PUT', {**text_body, 'feeling': 'okay'})
+            request(f'/api/entries/{symptom_id}', 'DELETE')
+            request(f'/api/entries/{symptom_id}', 'DELETE')
+            assert not any(item['id'] == symptom_id for item in json.loads(request('/api/entries'))['entries'])
+            assert symptom_id not in request('/api/export').decode('utf-8-sig')
             meal = upload()
             entry = wait(meal, lambda item: item['status'] == 'Identified' and item['originalDeletedAt'])
             assert entry['recognition']['labelIngredients'] == [], 'Meal must not acquire invented label ingredients'
