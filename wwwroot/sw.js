@@ -1,5 +1,5 @@
-const cacheName = 'food-diary-shell-v5';
-const shell = ['/', '/index.html', '/app.js', '/updates.js', '/uploads.js', '/icons.js', '/barcode.js', '/app.css', '/fonts.css', '/manifest.webmanifest', '/icon.svg'];
+const cacheName = 'food-diary-shell-v6';
+const shell = ['/', '/index.html', '/app.js', '/updates.js', '/uploads.js', '/compress-worker.js', '/webp_enc.wasm', '/webp_enc_simd.wasm', '/icons.js', '/barcode.js', '/app.css', '/fonts.css', '/manifest.webmanifest', '/icon.svg'];
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(cacheName).then((cache) => cache.addAll(shell)));
   self.skipWaiting();

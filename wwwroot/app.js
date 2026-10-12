@@ -1,5 +1,5 @@
 import { watchUpdates } from '/updates.js';
-import { copyPhoto, photoForm } from '/uploads.js';
+import { copyPhoto, photoForm, compressPhoto } from '/uploads.js';
 import { icon } from '/icons.js';
 const $ = (selector) => document.querySelector(selector);
 let savingEntry = false;
@@ -330,9 +330,19 @@ async function sync() {
           await api(`/api/entries/${draft.id}/description`, { method: 'PUT', body: JSON.stringify(draft), headers: { 'Content-Type': 'application/json' } });
           await remove(draft.id);
         } else if (draft.kind === 'food') {
+          if (!draft.compressed) {
+            $('#connection').textContent = 'Preparing photo · you can keep logging';
+            const barcode = await findBarcode(draft.blob);
+            const compressed = await compressPhoto(draft.blob);
+            // Replace the local original only after compression succeeds; retries reuse these bytes.
+            draft.blob = compressed;
+            draft.barcode = barcode;
+            draft.compressed = true;
+            await put(draft);
+          }
           const query = new URLSearchParams({ occurredAt: draft.occurredAt, zone: draft.zone, feeling: draft.feeling,
             photoKind: draft.photoKind || 'auto', simulateFailure: draft.simulateFailure });
-          const body = await photoForm(draft.blob, draft.description, await findBarcode(draft.blob));
+          const body = await photoForm(draft.blob, draft.description, draft.barcode);
           await api(`/api/entries/${draft.id}/photo?${query}`, { method: 'PUT', body });
           await put({ ...draft, uploaded: true });
         } else {

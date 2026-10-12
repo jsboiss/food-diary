@@ -94,3 +94,6 @@ Package photos now trigger automatic brand/flavour ingredient lookup in Open Foo
 
 
 Text-only food entries: a nonblank description counts as food even without a photo or stomach rating. It is saved offline first and analysed in the background using text only. Named ingredients are extracted without inventing additions to an explicit list. Stomach-only check-ins remain available with no food description. All completed entry types, including stomach check-ins, can be deleted from their details. Tests cover text-only recognition, duplicate saves, validation, ingredient export/editing/deletion and repeated stomach-check-in deletion.
+
+
+Client photo compression: after saving the draft locally, decode barcodes from the original, resize to at most 2,000,000 pixels without upscaling and encode WebP at quality 80 in a background worker before upload. The bundled jSquash encoder supports browsers without native WebP encoding. The smaller blob replaces the local original only on success and is reused on retries; failed compression keeps the original locally and never falls back to uploading it. The server retains image validation and preview generation for old clients and untrusted uploads. Encoder assets are cached with the offline shell. Existing server photos are unchanged.

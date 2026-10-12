@@ -23,3 +23,7 @@ wwwroot/icons.js
 test-data-ui/
 
 test-data-text-ui/
+
+wwwroot/compress-worker.js
+wwwroot/compress-worker.js.LEGAL.txt
+wwwroot/webp_enc*.wasm

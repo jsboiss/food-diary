@@ -67,7 +67,7 @@ app.Use(async (context, next) =>
 {
     context.Response.Headers["X-Content-Type-Options"] = "nosniff";
     context.Response.Headers["Referrer-Policy"] = "no-referrer";
-    context.Response.Headers["Content-Security-Policy"] = "default-src 'self'; img-src 'self' blob: data:; script-src 'self'; style-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'";
+    context.Response.Headers["Content-Security-Policy"] = "default-src 'self'; img-src 'self' blob: data:; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; style-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'";
     if (context.Request.Path.StartsWithSegments("/api"))
     {
         context.Response.Headers.CacheControl = "no-store";

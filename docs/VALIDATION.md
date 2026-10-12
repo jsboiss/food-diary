@@ -65,3 +65,6 @@ Ingredient fallback: a missing or ambiguous database result now triggers a secon
 
 
 Text-only food entries: a nonblank description counts as food even without a photo or stomach rating. It is saved offline first and analysed in the background using text only. Named ingredients are extracted without inventing additions to an explicit list. Stomach-only check-ins remain available with no food description. All completed entry types, including stomach check-ins, can be deleted from their details. Tests cover text-only recognition, duplicate saves, validation, ingredient export/editing/deletion and repeated stomach-check-in deletion.
+
+
+Client compression validation: frontend build, .NET build and 14 Node tests passed, including size/no-upscale checks and actual bundled WASM WebP encoding. A local Chrome end-to-end upload converted a synthetic 4032x3024 JPEG (9,489,088 bytes) into a WebP received by the server (525,872 bytes), at 1632x1224. Server preview was 506,910 bytes. No real API calls. iPhone hardware testing remains to be done.
